@@ -29,6 +29,15 @@ const WatchMovie = () => {
     );
   }
 
+  // Convert YouTube URL to embed format
+  const getYouTubeEmbedUrl = (url: string) => {
+    if (!url) return null;
+    const videoId = url.split('v=')[1]?.split('&')[0];
+    return videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1` : null;
+  };
+
+  const embedUrl = movie.video_url ? getYouTubeEmbedUrl(movie.video_url) : null;
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="relative">
@@ -41,13 +50,14 @@ const WatchMovie = () => {
         </Link>
         
         <div className="relative aspect-video bg-black">
-          {movie.video_url ? (
-            <video
-              src={movie.video_url}
-              poster={movie.backdrop}
-              controls
-              className="w-full h-full object-cover"
-              autoPlay={isPlaying}
+          {embedUrl ? (
+            <iframe
+              src={embedUrl}
+              title={movie.title}
+              className="w-full h-full"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
             />
           ) : (
             <>
@@ -58,40 +68,11 @@ const WatchMovie = () => {
               />
               
               <div className="absolute inset-0 flex items-center justify-center">
-                <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="bg-red-600 hover:bg-red-700 text-white p-6 rounded-full transition-all duration-200 hover:scale-110"
-                >
-                  {isPlaying ? <Pause className="w-12 h-12" /> : <Play className="w-12 h-12" />}
-                </button>
-              </div>
-              
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <button
-                      onClick={() => setIsPlaying(!isPlaying)}
-                      className="text-white hover:text-red-400 transition-colors"
-                    >
-                      {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-                    </button>
-                    <div className="w-96 h-1 bg-gray-600 rounded-full">
-                      <div className="w-1/3 h-full bg-red-600 rounded-full"></div>
-                    </div>
-                    <span className="text-sm text-gray-300">25:30 / {movie.duration}</span>
+                <div className="text-center">
+                  <div className="bg-red-600 hover:bg-red-700 text-white p-6 rounded-full mb-4">
+                    <Play className="w-12 h-12" />
                   </div>
-                  
-                  <div className="flex items-center space-x-4">
-                    <button className="text-white hover:text-red-400 transition-colors">
-                      <Volume2 className="w-6 h-6" />
-                    </button>
-                    <button className="text-white hover:text-red-400 transition-colors">
-                      <Settings className="w-6 h-6" />
-                    </button>
-                    <button className="text-white hover:text-red-400 transition-colors">
-                      <Maximize className="w-6 h-6" />
-                    </button>
-                  </div>
+                  <p className="text-white text-lg">Video not available</p>
                 </div>
               </div>
             </>
@@ -103,6 +84,18 @@ const WatchMovie = () => {
           <p className="text-gray-300 leading-relaxed max-w-4xl">
             {movie.description}
           </p>
+          {movie.video_url && (
+            <div className="mt-4">
+              <a 
+                href={movie.video_url} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-red-500 hover:text-red-400"
+              >
+                Watch on YouTube
+              </a>
+            </div>
+          )}
         </div>
       </div>
     </div>

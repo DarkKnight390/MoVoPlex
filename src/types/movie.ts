@@ -9,4 +9,5 @@ export interface Movie {
   year: number;
   genre: string;
   duration: string;
+  video_url?: string;
 }
