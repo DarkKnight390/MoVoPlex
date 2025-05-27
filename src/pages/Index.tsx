@@ -1,11 +1,22 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+
+import { useState } from "react";
+import Header from "@/components/Header";
+import HeroSection from "@/components/HeroSection";
+import MovieSection from "@/components/MovieSection";
+import { featuredMovies, popularMovies, actionMovies, comedyMovies, dramaMovies } from "@/data/movies";
 
 const Index = () => {
+  const [searchQuery, setSearchQuery] = useState("");
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-gray-600">Start building your amazing project here!</p>
+    <div className="min-h-screen bg-black text-white">
+      <Header searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
+      <HeroSection />
+      <div className="px-4 md:px-8 pb-16">
+        <MovieSection title="Popular on Movella" movies={popularMovies} />
+        <MovieSection title="Action & Adventure" movies={actionMovies} />
+        <MovieSection title="Comedy Movies" movies={comedyMovies} />
+        <MovieSection title="Drama Series" movies={dramaMovies} />
       </div>
     </div>
   );
