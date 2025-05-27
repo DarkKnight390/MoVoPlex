@@ -2,16 +2,24 @@
 import { useParams, Link } from "react-router-dom";
 import { Play, Star, Clock, Calendar, ArrowLeft } from "lucide-react";
 import Header from "@/components/Header";
-import { allMovies } from "@/data/movies";
+import { useMovie } from "@/hooks/useMovies";
 import { useState } from "react";
 
 const MovieDetail = () => {
   const { id } = useParams();
   const [searchQuery, setSearchQuery] = useState("");
   
-  const movie = allMovies.find(m => m.id === parseInt(id || "0"));
+  const { data: movie, isLoading, error } = useMovie(parseInt(id || "0"));
   
-  if (!movie) {
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-xl">Loading movie...</div>
+      </div>
+    );
+  }
+
+  if (error || !movie) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <div className="text-center">

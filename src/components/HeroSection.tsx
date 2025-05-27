@@ -1,15 +1,19 @@
 
 import { Play, Info, Star } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useMovies } from "@/hooks/useMovies";
 
 const HeroSection = () => {
-  const featuredMovie = {
+  const { data: movies = [] } = useMovies();
+  
+  // Use the first movie or a fallback
+  const featuredMovie = movies[0] || {
     id: 1,
-    title: "The Matrix Resurrections",
-    description: "Return to a world of two realities: one, everyday life; the other, what lies behind it. To find out if his reality is a construct, to truly know himself, Mr. Anderson will have to choose to follow the white rabbit once more.",
-    rating: 8.2,
-    year: 2021,
-    genre: "Sci-Fi, Action",
+    title: "Welcome to Movella Stream",
+    description: "Discover and watch amazing movies for free. Sign up to start your streaming journey.",
+    rating: 9.0,
+    year: 2024,
+    genre: "Entertainment",
     backdrop: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1920&h=1080"
   };
 
