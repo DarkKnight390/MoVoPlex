@@ -208,7 +208,10 @@ const assertEnumValue = (value, allowedValues, label) => {
 };
 
 const createAppwriteRequest = (req) => {
-  const apiKey = getHeader(req.headers, "x-appwrite-key") || process.env.APPWRITE_API_KEY;
+  const apiKey =
+    process.env.APPWRITE_FUNCTION_API_KEY ||
+    getHeader(req.headers, "x-appwrite-key") ||
+    process.env.APPWRITE_API_KEY;
 
   if (!apiKey || !appwriteEndpoint || !appwriteProjectId || !databaseId) {
     throw new Error(

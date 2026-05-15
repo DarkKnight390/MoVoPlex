@@ -333,6 +333,12 @@ const MoviesPage = () => {
         ? await updateMovie.mutateAsync({ movieId: editingMovie.$id, payload })
         : await createMovie.mutateAsync(payload);
 
+      if (!savedMovie || !savedMovie.$id) {
+        throw new Error(
+          "Movie save completed without a usable response from the admin function. Redeploy the function and try again."
+        );
+      }
+
       const filesToQueue = (Object.entries(selectedFiles) as [
         MediaFieldKey,
         File | null,
@@ -347,7 +353,11 @@ const MoviesPage = () => {
       if (filesToQueue.length) {
         try {
           for (const { field, file, meta } of filesToQueue) {
-            const location = buildPendingAssetLocation(savedMovie.title, field, file);
+            const location = buildPendingAssetLocation(
+              savedMovie.title || payload.title,
+              field,
+              file
+            );
             const uploadTarget = await beginUpload.mutateAsync({
               movie_id: savedMovie.$id,
               asset_type: meta.assetType,

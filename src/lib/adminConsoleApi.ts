@@ -59,15 +59,17 @@ const executeAdminConsole = async <TResult>(
     { "content-type": "application/json" }
   );
 
+  const responseText = execution.responseBody || execution.response || "";
+
   if (execution.status === "failed") {
-    throw new Error(execution.response || "Admin console function execution failed.");
+    throw new Error(responseText || "Admin console function execution failed.");
   }
 
-  if (!execution.response) {
+  if (!responseText) {
     return null as TResult;
   }
 
-  return JSON.parse(execution.response) as TResult;
+  return JSON.parse(responseText) as TResult;
 };
 
 const bytesToHex = (bytes: Uint8Array) =>
