@@ -3,11 +3,11 @@ import { useState } from "react";
 import Header from "@/components/Header";
 import HeroSection from "@/components/HeroSection";
 import MovieSection from "@/components/MovieSection";
-import { useMovies } from "@/hooks/useMovies";
+import { useHomepageContent } from "@/hooks/useHomepageContent";
 
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
-  const { data: movies = [], isLoading, error } = useMovies();
+  const { movies = [], rowSections, isLoading, error } = useHomepageContent();
 
   if (isLoading) {
     return (
@@ -53,6 +53,17 @@ const Index = () => {
     .sort((a, b) => b.rating - a.rating)
     .slice(0, 12);
 
+  const filteredHomepageRows = rowSections
+    .map((row) => ({
+      ...row,
+      movies: row.movies.filter(
+        (movie) =>
+          movie.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          movie.genre.toLowerCase().includes(searchQuery.toLowerCase())
+      ),
+    }))
+    .filter((row) => row.movies.length > 0);
+
   return (
     <div className="min-h-screen bg-black text-white">
       <Header searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
@@ -60,9 +71,15 @@ const Index = () => {
       <div className="px-4 md:px-8 pb-16">
         {searchQuery ? (
           <MovieSection title={`Search Results for "${searchQuery}"`} movies={filteredMovies} />
+        ) : filteredHomepageRows.length > 0 ? (
+          <>
+            {filteredHomepageRows.map((row) => (
+              <MovieSection key={row.id} title={row.title} movies={row.movies} />
+            ))}
+          </>
         ) : (
           <>
-            <MovieSection title="Popular on Movella" movies={popularMovies} />
+            <MovieSection title="Popular on MoVoPlex" movies={popularMovies} />
             {actionMovies.length > 0 && (
               <MovieSection title="Action & Adventure" movies={actionMovies} />
             )}

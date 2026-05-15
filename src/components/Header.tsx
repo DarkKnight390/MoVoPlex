@@ -1,7 +1,8 @@
 
 import { useState } from "react";
-import { Search, Menu, X, User, LogOut } from "lucide-react";
+import { Search, Menu, X, User, LogOut, Shield } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { Link } from "react-router-dom";
 
 interface HeaderProps {
   searchQuery: string;
@@ -11,7 +12,7 @@ interface HeaderProps {
 const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const { user, signOut } = useAuth();
+  const { user, isAdmin, signOut } = useAuth();
 
   const handleSignOut = async () => {
     await signOut();
@@ -21,18 +22,27 @@ const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-sm border-b border-gray-800">
       <div className="px-4 md:px-8">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-between h-16 md:h-[4.5rem]">
           {/* Logo */}
-          <div className="flex-shrink-0">
-            <h1 className="text-2xl font-bold text-red-500">Movella</h1>
-          </div>
+          <Link to="/" className="flex h-10 md:h-12 w-32 md:w-40 items-center overflow-hidden flex-shrink-0">
+            <img
+              src="/MoVoPlex.png"
+              alt="MoVoPlex"
+              className="h-24 md:h-28 w-auto object-cover object-left"
+            />
+          </Link>
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-8">
-            <a href="#" className="text-white hover:text-red-400 transition-colors">Home</a>
+            <Link to="/" className="text-white hover:text-red-400 transition-colors">Home</Link>
             <a href="#" className="text-gray-300 hover:text-red-400 transition-colors">Movies</a>
             <a href="#" className="text-gray-300 hover:text-red-400 transition-colors">TV Shows</a>
             <a href="#" className="text-gray-300 hover:text-red-400 transition-colors">My List</a>
+            {isAdmin && (
+              <Link to="/admin/dashboard" className="text-red-400 hover:text-red-300 transition-colors">
+                Admin
+              </Link>
+            )}
           </nav>
 
           {/* Search and User Menu */}
@@ -59,7 +69,7 @@ const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
               >
                 <User className="h-6 w-6" />
                 <span className="hidden md:block">
-                  {user?.user_metadata?.username || user?.email}
+                  {user?.name || user?.email}
                 </span>
               </button>
 
@@ -67,10 +77,20 @@ const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
                 <div className="absolute right-0 mt-2 w-48 bg-gray-800 rounded-lg shadow-lg py-2">
                   <div className="px-4 py-2 text-gray-300 border-b border-gray-700">
                     <p className="text-sm font-medium text-white">
-                      {user?.user_metadata?.username || 'User'}
+                      {user?.name || 'User'}
                     </p>
                     <p className="text-xs text-gray-400">{user?.email}</p>
                   </div>
+                  {isAdmin && (
+                    <Link
+                      to="/admin/dashboard"
+                      onClick={() => setShowUserMenu(false)}
+                      className="flex items-center space-x-2 w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+                    >
+                      <Shield className="h-4 w-4" />
+                      <span>Admin Dashboard</span>
+                    </Link>
+                  )}
                   <button
                     onClick={handleSignOut}
                     className="flex items-center space-x-2 w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
@@ -112,10 +132,25 @@ const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
               
               {/* Mobile Navigation */}
               <nav className="flex flex-col space-y-2">
-                <a href="#" className="text-white hover:text-red-400 transition-colors py-2">Home</a>
+                <Link
+                  to="/"
+                  className="text-white hover:text-red-400 transition-colors py-2"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Home
+                </Link>
                 <a href="#" className="text-gray-300 hover:text-red-400 transition-colors py-2">Movies</a>
                 <a href="#" className="text-gray-300 hover:text-red-400 transition-colors py-2">TV Shows</a>
                 <a href="#" className="text-gray-300 hover:text-red-400 transition-colors py-2">My List</a>
+                {isAdmin && (
+                  <Link
+                    to="/admin/dashboard"
+                    className="text-red-400 hover:text-red-300 transition-colors py-2"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    Admin Dashboard
+                  </Link>
+                )}
               </nav>
             </div>
           </div>

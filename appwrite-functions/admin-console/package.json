@@ -1,0 +1,9 @@
+{
+  "name": "movoplex-admin-console-function",
+  "private": true,
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "check": "node --check src/main.js"
+  }
+}

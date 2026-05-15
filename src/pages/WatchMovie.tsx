@@ -1,14 +1,13 @@
 
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Play, Pause, Volume2, Maximize, Settings } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Play } from "lucide-react";
 import { useMovie } from "@/hooks/useMovies";
+import { getYouTubeEmbedUrl } from "@/lib/media";
 
 const WatchMovie = () => {
   const { id } = useParams();
-  const [isPlaying, setIsPlaying] = useState(false);
   
-  const { data: movie, isLoading, error } = useMovie(parseInt(id || "0"));
+  const { data: movie, isLoading, error } = useMovie(id);
   
   if (isLoading) {
     return (
@@ -28,13 +27,6 @@ const WatchMovie = () => {
       </div>
     );
   }
-
-  // Convert YouTube URL to embed format
-  const getYouTubeEmbedUrl = (url: string) => {
-    if (!url) return null;
-    const videoId = url.split('v=')[1]?.split('&')[0];
-    return videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1` : null;
-  };
 
   const embedUrl = movie.video_url ? getYouTubeEmbedUrl(movie.video_url) : null;
 
@@ -59,6 +51,16 @@ const WatchMovie = () => {
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
             />
+          ) : movie.video_url ? (
+            <video
+              src={movie.video_url}
+              poster={movie.backdrop}
+              className="w-full h-full"
+              controls
+              autoPlay
+            >
+              Your browser does not support HTML5 video playback.
+            </video>
           ) : (
             <>
               <img
@@ -92,7 +94,7 @@ const WatchMovie = () => {
                 rel="noopener noreferrer"
                 className="text-red-500 hover:text-red-400"
               >
-                Watch on YouTube
+                Open video source
               </a>
             </div>
           )}

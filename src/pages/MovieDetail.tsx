@@ -9,7 +9,7 @@ const MovieDetail = () => {
   const { id } = useParams();
   const [searchQuery, setSearchQuery] = useState("");
   
-  const { data: movie, isLoading, error } = useMovie(parseInt(id || "0"));
+  const { data: movie, isLoading, error } = useMovie(id);
   
   if (isLoading) {
     return (

@@ -1,12 +1,21 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react';
 import { toast } from 'sonner';
 
+const getErrorMessage = (error: unknown) => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'An error occurred';
+};
+
 const Auth = () => {
   const { user, signIn, signUp } = useAuth();
+  const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,6 +38,7 @@ const Auth = () => {
         const { error } = await signIn(formData.email, formData.password);
         if (error) throw error;
         toast.success('Successfully logged in!');
+        navigate('/', { replace: true });
       } else {
         if (!formData.username.trim()) {
           toast.error('Username is required');
@@ -38,9 +48,10 @@ const Auth = () => {
         const { error } = await signUp(formData.email, formData.password, formData.username);
         if (error) throw error;
         toast.success('Account created successfully!');
+        navigate('/', { replace: true });
       }
-    } catch (error: any) {
-      toast.error(error.message || 'An error occurred');
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
     setLoading(false);
   };
@@ -56,9 +67,13 @@ const Auth = () => {
     <div className="min-h-screen bg-black flex items-center justify-center px-4">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-red-500 mb-2">Movella Stream</h1>
+          <img
+            src="/MoVoPlex.png"
+            alt="MoVoPlex"
+            className="mx-auto mb-4 h-28 md:h-32 w-auto object-contain"
+          />
           <h2 className="text-3xl font-bold text-white mb-2">
-            {isLogin ? 'Welcome Back' : 'Join Movella'}
+            {isLogin ? 'Welcome Back' : 'Join MoVoPlex'}
           </h2>
           <p className="text-gray-400">
             {isLogin ? 'Sign in to your account' : 'Create your free account'}
