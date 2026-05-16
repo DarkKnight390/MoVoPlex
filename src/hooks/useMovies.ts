@@ -47,7 +47,11 @@ const getMoviesCollectionError = () =>
   );
 
 const isPubliclyPlayableMovie = (movie: AppwriteMovieDocument) =>
-  movie.status === "published" &&
+  (movie.status === "published" ||
+    (!movie.status &&
+      Boolean(movie.poster) &&
+      Boolean(movie.video_url) &&
+      !movie.rejection_reason_code)) &&
   Boolean(movie.poster) &&
   Boolean(movie.video_url) &&
   !isTempStoredAsset(movie.poster) &&
@@ -61,16 +65,21 @@ export const useMovies = () =>
         throw getMoviesCollectionError();
       }
 
-      const response = await databases.listDocuments(
-        appwriteConfig.databaseId,
-        appwriteConfig.collections.movies,
-        [Query.equal("status", ["published"]), Query.orderDesc("$updatedAt")]
-      );
+      try {
+        const response = await databases.listDocuments(
+          appwriteConfig.databaseId,
+          appwriteConfig.collections.movies,
+          [Query.orderDesc("$updatedAt")]
+        );
 
-      return response.documents
-        .map((movie) => movie as AppwriteMovieDocument)
-        .filter(isPubliclyPlayableMovie)
-        .map(mapMovieDocument);
+        return response.documents
+          .map((movie) => movie as AppwriteMovieDocument)
+          .filter(isPubliclyPlayableMovie)
+          .map(mapMovieDocument);
+      } catch (error) {
+        console.warn("Falling back to an empty published-movies state.", error);
+        return [];
+      }
     },
   });
 
@@ -86,13 +95,18 @@ export const useMovie = (id?: string) =>
         throw getMoviesCollectionError();
       }
 
-      const movie = (await databases.getDocument(
-        appwriteConfig.databaseId,
-        appwriteConfig.collections.movies,
-        id
-      )) as AppwriteMovieDocument;
+      try {
+        const movie = (await databases.getDocument(
+          appwriteConfig.databaseId,
+          appwriteConfig.collections.movies,
+          id
+        )) as AppwriteMovieDocument;
 
-      return isPubliclyPlayableMovie(movie) ? mapMovieDocument(movie) : null;
+        return isPubliclyPlayableMovie(movie) ? mapMovieDocument(movie) : null;
+      } catch (error) {
+        console.warn(`Published movie ${id} could not be loaded.`, error);
+        return null;
+      }
     },
     enabled: !!id,
   });

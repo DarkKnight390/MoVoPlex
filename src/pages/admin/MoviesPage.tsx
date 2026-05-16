@@ -708,10 +708,11 @@ const MoviesPage = () => {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {filteredMovies.map((movie) => {
-            const publishBlockers = getPublishBlockers(movie);
+            {filteredMovies.map((movie) => {
+              const publishBlockers = getPublishBlockers(movie);
+              const normalizedStatus = normalizeMovieStatus(movie.status);
 
-            return (
+              return (
             <div
               key={movie.$id}
               className="rounded-2xl border border-gray-800 bg-black/30 p-4"
@@ -725,11 +726,11 @@ const MoviesPage = () => {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-xl font-semibold text-white">{movie.title}</h3>
-                        <Badge variant="outline" className="border-gray-700 text-gray-300">
-                          {movie.status}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-xl font-semibold text-white">{movie.title}</h3>
+                          <Badge variant="outline" className="border-gray-700 text-gray-300">
+                            {normalizedStatus}
+                          </Badge>
                         {movie.featured_on_homepage ? (
                           <Badge className="bg-red-600 text-white">Featured</Badge>
                         ) : null}
@@ -759,14 +760,14 @@ const MoviesPage = () => {
                       >
                         Edit
                       </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="border-gray-700 bg-transparent text-white hover:bg-gray-900"
-                        onClick={() => handlePublishToggle(movie)}
-                      >
-                        {movie.status === "published" ? "Unpublish" : "Publish"}
-                      </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="border-gray-700 bg-transparent text-white hover:bg-gray-900"
+                          onClick={() => handlePublishToggle(movie)}
+                        >
+                          {normalizedStatus === "published" ? "Unpublish" : "Publish"}
+                        </Button>
                       <Button
                         type="button"
                         variant="destructive"
