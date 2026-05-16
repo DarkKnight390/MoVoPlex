@@ -46,6 +46,8 @@ type BackblazeUploadResult = {
   [key: string]: unknown;
 };
 
+type UploadProgressCallback = (progressPercent: number) => void;
+
 const getDatabaseError = () =>
   new Error("Missing Appwrite database configuration for the admin console.");
 
@@ -95,27 +97,46 @@ const getFileSha1 = async (file: File) => {
 
 export const uploadBrowserFileToBackblaze = async (
   file: File,
-  target: AdminUploadTarget
+  target: AdminUploadTarget,
+  onProgress?: UploadProgressCallback
 ) => {
   const contentSha1 = await getFileSha1(file);
-  const response = await fetch(target.upload_url, {
-    method: "POST",
-    headers: {
-      Authorization: target.authorization_token,
-      "X-Bz-File-Name": encodeURIComponent(target.object_key),
-      "Content-Type": file.type || "b2/x-auto",
-      "X-Bz-Content-Sha1": contentSha1,
-    },
-    body: file,
+  const payload = await new Promise<BackblazeUploadResult>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", target.upload_url);
+    xhr.setRequestHeader("Authorization", target.authorization_token);
+    xhr.setRequestHeader("X-Bz-File-Name", encodeURIComponent(target.object_key));
+    xhr.setRequestHeader("Content-Type", file.type || "b2/x-auto");
+    xhr.setRequestHeader("X-Bz-Content-Sha1", contentSha1);
+
+    xhr.upload.onprogress = (event) => {
+      if (!onProgress || !event.lengthComputable) {
+        return;
+      }
+
+      onProgress(Math.round((event.loaded / event.total) * 100));
+    };
+
+    xhr.onerror = () => reject(new Error("Backblaze upload failed."));
+    xhr.onabort = () => reject(new Error("Backblaze upload was cancelled."));
+    xhr.onload = () => {
+      const rawResponse = xhr.responseText || "";
+      const parsed = (rawResponse ? JSON.parse(rawResponse) : null) as BackblazeUploadResult | null;
+
+      if (xhr.status >= 200 && xhr.status < 300 && parsed) {
+        resolve(parsed);
+        return;
+      }
+
+      reject(
+        new Error(
+          String(parsed?.message || parsed?.code || `Backblaze upload failed with status ${xhr.status}.`)
+        )
+      );
+    };
+
+    xhr.send(file);
   });
-
-  const payload = (await response.json().catch(() => null)) as BackblazeUploadResult | null;
-
-  if (!response.ok) {
-    throw new Error(
-      String(payload?.message || payload?.code || "Backblaze upload failed.")
-    );
-  }
 
   return {
     contentSha1,

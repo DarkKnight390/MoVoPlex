@@ -73,6 +73,13 @@ const createEmptySelectedFiles = (): SelectedMovieFiles => ({
   video_url: null,
 });
 
+const createEmptyUploadProgress = (): Record<MediaFieldKey, number> => ({
+  poster: 0,
+  banner: 0,
+  trailer: 0,
+  video_url: 0,
+});
+
 const validMovieStatuses = new Set<MovieStatus>(movieStatuses);
 const validSubscriptionAvailabilities = new Set<
   MovieFormState["subscription_availability"]
@@ -173,6 +180,7 @@ type MediaFileFieldProps = {
   field: MediaFieldKey;
   storedValue: string;
   selectedFile: File | null;
+  uploadProgress?: number;
   onFileChange: (file: File | null) => void;
 };
 
@@ -180,6 +188,7 @@ const MediaFileField = ({
   field,
   storedValue,
   selectedFile,
+  uploadProgress,
   onFileChange,
 }: MediaFileFieldProps) => {
   const meta = mediaFieldMeta[field];
@@ -220,6 +229,9 @@ const MediaFileField = ({
             <p className="mt-1 text-xs text-green-200/80">
               {selectedFile.type || "Unknown type"} - {formatFileSize(selectedFile.size)}
             </p>
+            {uploadProgress ? (
+              <p className="mt-2 text-xs text-green-200/90">Upload progress: {uploadProgress}%</p>
+            ) : null}
           </div>
         ) : storedValue ? (
           <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-3 text-sm text-gray-300">
@@ -270,10 +282,22 @@ const MoviesPage = () => {
   const [selectedFiles, setSelectedFiles] = useState<SelectedMovieFiles>(
     createEmptySelectedFiles
   );
+  const [uploadProgress, setUploadProgress] = useState<Record<MediaFieldKey, number>>(
+    createEmptyUploadProgress
+  );
   const { data: movies = [] } = useAdminMovies();
   const { data: creators = [] } = useCreatorProfiles();
   const { data: categories = [] } = useCategories();
-  const { createMovie, updateMovie, deleteMovie, publishMovie, beginUpload, completeUpload } =
+  const {
+    createMovie,
+    updateMovie,
+    deleteMovie,
+    publishMovie,
+    beginUpload,
+    completeUpload,
+    cancelUpload,
+    deleteUpload,
+  } =
     useAdminMutation();
 
   const filteredMovies = useMemo(() => {
@@ -295,6 +319,7 @@ const MoviesPage = () => {
     setEditingMovie(null);
     setForm(emptyMovieForm);
     setSelectedFiles(createEmptySelectedFiles());
+    setUploadProgress(createEmptyUploadProgress());
   };
 
   const setSelectedFile = (field: MediaFieldKey, file: File | null) => {
@@ -400,7 +425,24 @@ const MoviesPage = () => {
               language: null,
             });
 
-            const uploadResult = await uploadBrowserFileToBackblaze(file, uploadTarget);
+            let uploadResult;
+            try {
+              setUploadProgress((current) => ({ ...current, [field]: 0 }));
+              uploadResult = await uploadBrowserFileToBackblaze(file, uploadTarget, (progress) => {
+                setUploadProgress((current) => ({ ...current, [field]: progress }));
+              });
+            } catch (uploadFailure) {
+              await cancelUpload
+                .mutateAsync({ job_id: uploadTarget.job.$id })
+                .catch(() => null);
+              await deleteUpload
+                .mutateAsync({
+                  asset_id: uploadTarget.asset.$id,
+                  job_id: uploadTarget.job.$id,
+                })
+                .catch(() => null);
+              throw uploadFailure;
+            }
 
             await completeUpload.mutateAsync({
               asset_id: uploadTarget.asset.$id,
@@ -425,6 +467,7 @@ const MoviesPage = () => {
                   uploadResult.response?.fileId || uploadResult.response?.file_id || ""
                 ) || null,
             });
+            setUploadProgress((current) => ({ ...current, [field]: 100 }));
           }
         } catch (uploadError) {
           setEditingMovie(savedMovie);
@@ -539,24 +582,28 @@ const MoviesPage = () => {
                   field="poster"
                   storedValue={form.poster}
                   selectedFile={selectedFiles.poster}
+                  uploadProgress={uploadProgress.poster}
                   onFileChange={(file) => setSelectedFile("poster", file)}
                 />
                 <MediaFileField
                   field="banner"
                   storedValue={form.banner}
                   selectedFile={selectedFiles.banner}
+                  uploadProgress={uploadProgress.banner}
                   onFileChange={(file) => setSelectedFile("banner", file)}
                 />
                 <MediaFileField
                   field="trailer"
                   storedValue={form.trailer}
                   selectedFile={selectedFiles.trailer}
+                  uploadProgress={uploadProgress.trailer}
                   onFileChange={(file) => setSelectedFile("trailer", file)}
                 />
                 <MediaFileField
                   field="video_url"
                   storedValue={form.video_url}
                   selectedFile={selectedFiles.video_url}
+                  uploadProgress={uploadProgress.video_url}
                   onFileChange={(file) => setSelectedFile("video_url", file)}
                 />
               </div>

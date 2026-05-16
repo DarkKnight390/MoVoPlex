@@ -254,6 +254,12 @@ const UploadsPage = () => {
                   <p className="text-sm text-gray-400">
                     Final key: {asset.final_key || "Waiting for processing"}
                   </p>
+                  {asset.processing_status === "pending" ? (
+                    <p className="text-xs text-amber-400">
+                      Raw file upload has not been confirmed yet. If this row stays pending, re-upload
+                      it from the Movies page.
+                    </p>
+                  ) : null}
                   {job ? (
                     <p className="text-xs text-gray-500">Job ID: {job.$id}</p>
                   ) : null}
