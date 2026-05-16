@@ -160,6 +160,18 @@ export const useAdminMutation = () => {
       mutationFn: adminConsoleApi.completeUpload,
       onSuccess: invalidateAdminData,
     }),
+    processUpload: useMutation({
+      mutationFn: adminConsoleApi.processUpload,
+      onSuccess: invalidateAdminData,
+    }),
+    cancelUpload: useMutation({
+      mutationFn: adminConsoleApi.cancelUpload,
+      onSuccess: invalidateAdminData,
+    }),
+    deleteUpload: useMutation({
+      mutationFn: adminConsoleApi.deleteUpload,
+      onSuccess: invalidateAdminData,
+    }),
     updateHomepage: useMutation({
       mutationFn: adminConsoleApi.updateHomepage,
       onSuccess: invalidateAdminData,

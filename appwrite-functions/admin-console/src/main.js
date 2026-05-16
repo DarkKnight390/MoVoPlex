@@ -25,6 +25,7 @@ const capabilityMatrix = {
 };
 
 const uploadAssetTypes = new Set(["poster", "banner", "trailer", "main_video", "subtitle"]);
+const finalizableAssetStatuses = new Set(["pending", "uploaded", "processing"]);
 const creatorStatuses = new Set(["pending", "approved", "verified", "suspended", "banned", "deleted"]);
 const subscriptionAvailabilities = new Set(["free", "subscriber_only", "scheduled"]);
 const movieStatuses = new Set([
@@ -387,6 +388,30 @@ const getBackblazeConfig = () => {
     process.env.BACKBLAZE_BUCKET_ID_MOVOPLEX_TEMP_PROCESSING;
   const tempBucketName =
     process.env.BACKBLAZE_TEMP_PROCESSING_BUCKET_NAME || "movoplex-temp-processing";
+  const videosBucketName =
+    process.env.BACKBLAZE_VIDEOS_BUCKET_NAME || "movoplex-videos";
+  const trailersBucketName =
+    process.env.BACKBLAZE_TRAILERS_BUCKET_NAME || "movoplex-trailers";
+  const thumbnailsBucketName =
+    process.env.BACKBLAZE_THUMBNAILS_BUCKET_NAME || "movoplex-thumbnails";
+  const subtitlesBucketName =
+    process.env.BACKBLAZE_SUBTITLES_BUCKET_NAME || "movoplex-subtitles";
+  const videosBucketId =
+    process.env.BACKBLAZE_VIDEOS_BUCKET_ID ||
+    process.env.BACKBLAZE_BUCKET_ID_VIDEOS ||
+    null;
+  const trailersBucketId =
+    process.env.BACKBLAZE_TRAILERS_BUCKET_ID ||
+    process.env.BACKBLAZE_BUCKET_ID_TRAILERS ||
+    null;
+  const thumbnailsBucketId =
+    process.env.BACKBLAZE_THUMBNAILS_BUCKET_ID ||
+    process.env.BACKBLAZE_BUCKET_ID_THUMBNAILS ||
+    null;
+  const subtitlesBucketId =
+    process.env.BACKBLAZE_SUBTITLES_BUCKET_ID ||
+    process.env.BACKBLAZE_BUCKET_ID_SUBTITLES ||
+    null;
 
   if (!keyId || !applicationKey || !tempBucketId) {
     const error = new Error(
@@ -401,6 +426,33 @@ const getBackblazeConfig = () => {
     applicationKey,
     tempBucketId,
     tempBucketName,
+    bucketDestinations: {
+      poster: {
+        bucketId: thumbnailsBucketId,
+        bucketName: thumbnailsBucketName,
+        movieField: "poster",
+      },
+      banner: {
+        bucketId: thumbnailsBucketId,
+        bucketName: thumbnailsBucketName,
+        movieField: "banner",
+      },
+      trailer: {
+        bucketId: trailersBucketId,
+        bucketName: trailersBucketName,
+        movieField: "trailer",
+      },
+      main_video: {
+        bucketId: videosBucketId,
+        bucketName: videosBucketName,
+        movieField: "video_url",
+      },
+      subtitle: {
+        bucketId: subtitlesBucketId,
+        bucketName: subtitlesBucketName,
+        movieField: null,
+      },
+    },
   };
 };
 
@@ -448,6 +500,254 @@ const getBackblazeUploadUrl = async ({ apiUrl, authorizationToken, bucketId }) =
   }
 
   return payload;
+};
+
+const listBackblazeBuckets = async ({ apiUrl, authorizationToken, accountId }) => {
+  const response = await fetch(`${apiUrl}/b2api/v4/b2_list_buckets`, {
+    method: "POST",
+    headers: {
+      Authorization: authorizationToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ accountId }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.message || "Backblaze bucket list request failed.");
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload.buckets || [];
+};
+
+const copyBackblazeFile = async ({
+  apiUrl,
+  authorizationToken,
+  sourceFileId,
+  destinationBucketId,
+  fileName,
+}) => {
+  const response = await fetch(`${apiUrl}/b2api/v4/b2_copy_file`, {
+    method: "POST",
+    headers: {
+      Authorization: authorizationToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      sourceFileId,
+      destinationBucketId,
+      fileName,
+      metadataDirective: "COPY",
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.message || "Backblaze copy request failed.");
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+};
+
+const deleteBackblazeFileVersion = async ({
+  apiUrl,
+  authorizationToken,
+  fileName,
+  fileId,
+}) => {
+  const response = await fetch(`${apiUrl}/b2api/v4/b2_delete_file_version`, {
+    method: "POST",
+    headers: {
+      Authorization: authorizationToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      fileName,
+      fileId,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.message || "Backblaze delete file version failed.");
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+};
+
+const listBackblazeFileVersions = async ({
+  apiUrl,
+  authorizationToken,
+  bucketId,
+  prefix,
+}) => {
+  const response = await fetch(`${apiUrl}/b2api/v4/b2_list_file_versions`, {
+    method: "POST",
+    headers: {
+      Authorization: authorizationToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      bucketId,
+      startFileName: prefix,
+      prefix,
+      maxFileCount: 20,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.message || "Backblaze file version lookup failed.");
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload.files || [];
+};
+
+const parseB2Key = (value) => {
+  const normalized = String(value || "");
+  const match = normalized.match(/^b2:\/\/([^/]+)\/(.+)$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    bucketName: match[1],
+    objectKey: match[2],
+  };
+};
+
+const isTempB2Key = (value, tempBucketName) =>
+  typeof value === "string" && value.startsWith(`b2://${tempBucketName}/`);
+
+const getDestinationForAssetType = (config, assetType) => {
+  const destination = config.bucketDestinations[assetType];
+
+  if (!destination) {
+    const error = new Error(`No destination bucket configured for asset type ${assetType}.`);
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  return destination;
+};
+
+const resolveBucketId = async ({ authorization, config, bucketName, bucketId }) => {
+  if (bucketId) {
+    return bucketId;
+  }
+
+  const buckets = await listBackblazeBuckets({
+    apiUrl: authorization.apiInfo.storageApi.apiUrl,
+    authorizationToken: authorization.authorizationToken,
+    accountId: authorization.accountId,
+  });
+  const match = buckets.find((bucket) => bucket.bucketName === bucketName);
+
+  if (!match) {
+    const error = new Error(`Backblaze bucket not found: ${bucketName}`);
+    error.statusCode = APPWRITE_NOT_FOUND;
+    throw error;
+  }
+
+  return match.bucketId;
+};
+
+const getBackblazeFileVersion = async ({ authorization, bucketId, objectKey }) => {
+  const files = await listBackblazeFileVersions({
+    apiUrl: authorization.apiInfo.storageApi.apiUrl,
+    authorizationToken: authorization.authorizationToken,
+    bucketId,
+    prefix: objectKey,
+  });
+
+  return (
+    files.find((file) => file.fileName === objectKey && file.action !== "hide") || null
+  );
+};
+
+const buildMovieAssetPatch = ({ assetType, finalKey, currentMovie, tempBucketName }) => {
+  const patch = {};
+
+  if (assetType === "poster") {
+    patch.poster = finalKey;
+    if (!currentMovie.banner || isTempB2Key(currentMovie.banner, tempBucketName)) {
+      patch.backdrop = finalKey;
+    }
+  }
+
+  if (assetType === "banner") {
+    patch.banner = finalKey;
+    patch.backdrop = finalKey;
+  }
+
+  if (assetType === "trailer") {
+    patch.trailer = finalKey;
+  }
+
+  if (assetType === "main_video") {
+    patch.video_url = finalKey;
+  }
+
+  const hasPoster = Boolean(
+    patch.poster ||
+      (currentMovie.poster && !isTempB2Key(currentMovie.poster, tempBucketName))
+  );
+  const hasMainVideo = Boolean(
+    patch.video_url ||
+      (currentMovie.video_url && !isTempB2Key(currentMovie.video_url, tempBucketName))
+  );
+
+  if (["draft", "uploading", "processing", "processing_failed"].includes(currentMovie.status)) {
+    patch.status = hasPoster && hasMainVideo ? "pending_review" : "processing";
+  }
+
+  return patch;
+};
+
+const buildMovieAssetRemovalPatch = ({ assetType, currentMovie, tempKey, finalKey }) => {
+  const patch = {};
+  const activeKey = finalKey || tempKey;
+
+  if (!activeKey) {
+    return patch;
+  }
+
+  if (assetType === "poster" && currentMovie.poster === activeKey) {
+    patch.poster = null;
+  }
+
+  if (assetType === "banner" && currentMovie.banner === activeKey) {
+    patch.banner = null;
+  }
+
+  if (assetType === "trailer" && currentMovie.trailer === activeKey) {
+    patch.trailer = null;
+  }
+
+  if (assetType === "main_video" && currentMovie.video_url === activeKey) {
+    patch.video_url = null;
+  }
+
+  if ((assetType === "poster" || assetType === "banner") && currentMovie.backdrop === activeKey) {
+    patch.backdrop = null;
+  }
+
+  return patch;
 };
 
 const writeAuditLog = async (request, membership, req, entry) => {
@@ -805,28 +1105,69 @@ const beginUpload = async ({ req, membership, request }) => {
     bucketId: b2.tempBucketId,
   });
 
-  const asset = await createDocument(request, collectionIds.movieAssets, {
-    movie_id: movieId,
-    asset_type: assetType,
-    bucket: b2.tempBucketName,
-    temp_key: tempKey,
-    final_key: null,
-    processing_status: "pending",
-    mime_type: mimeType || null,
-    size_bytes: Number.isFinite(Number(sizeBytes)) ? Number(sizeBytes) : null,
-    duration_seconds: null,
-    language: language || null,
-    label: originalFileName,
-  });
+  const existingAssets = await listDocuments(request, collectionIds.movieAssets);
+  const existingJobs = await listDocuments(request, collectionIds.processingJobs);
+  const existingAsset = existingAssets.find(
+    (item) =>
+      item.movie_id === movieId &&
+      item.asset_type === assetType &&
+      item.temp_key === tempKey &&
+      !item.final_key &&
+      item.processing_status !== "ready"
+  );
 
-  const job = await createDocument(request, collectionIds.processingJobs, {
-    movie_id: movieId,
-    job_type: `${assetType}_upload`,
-    status: "queued",
-    input_asset_id: asset.$id,
-    output_asset_id: null,
-    error_message: null,
-  });
+  const asset = existingAsset
+    ? await updateDocument(request, collectionIds.movieAssets, existingAsset.$id, {
+        bucket: b2.tempBucketName,
+        temp_key: tempKey,
+        final_key: null,
+        processing_status: "pending",
+        mime_type: mimeType || existingAsset.mime_type || null,
+        size_bytes:
+          Number.isFinite(Number(sizeBytes)) ? Number(sizeBytes) : existingAsset.size_bytes || null,
+        duration_seconds: existingAsset.duration_seconds || null,
+        language: language || existingAsset.language || null,
+        label: originalFileName,
+      })
+    : await createDocument(request, collectionIds.movieAssets, {
+        movie_id: movieId,
+        asset_type: assetType,
+        bucket: b2.tempBucketName,
+        temp_key: tempKey,
+        final_key: null,
+        processing_status: "pending",
+        mime_type: mimeType || null,
+        size_bytes: Number.isFinite(Number(sizeBytes)) ? Number(sizeBytes) : null,
+        duration_seconds: null,
+        language: language || null,
+        label: originalFileName,
+      });
+
+  const existingJob = existingJobs.find(
+    (item) =>
+      item.input_asset_id === asset.$id &&
+      !["completed", "cancelled"].includes(item.status)
+  );
+  const job = existingJob
+    ? await updateDocument(request, collectionIds.processingJobs, existingJob.$id, {
+        status: "queued",
+        error_message: null,
+        input_asset_id: asset.$id,
+      })
+    : await createDocument(request, collectionIds.processingJobs, {
+        movie_id: movieId,
+        job_type: `${assetType}_upload`,
+        status: "queued",
+        input_asset_id: asset.$id,
+        output_asset_id: null,
+        error_message: null,
+      });
+
+  if (["draft", "processing_failed"].includes(movie.status)) {
+    await updateDocument(request, collectionIds.movies, movieId, {
+      status: "uploading",
+    });
+  }
 
   await writeAuditLog(request, membership, req, {
     action: "upload_started",
@@ -839,6 +1180,8 @@ const beginUpload = async ({ req, membership, request }) => {
       bucket: b2.tempBucketName,
       temp_key: tempKey,
       object_key: objectKey,
+      reused_existing_asset: Boolean(existingAsset),
+      reused_existing_job: Boolean(existingJob),
       mime_type: mimeType || null,
       size_bytes: Number.isFinite(Number(sizeBytes)) ? Number(sizeBytes) : null,
     }),
@@ -939,10 +1282,388 @@ const completeUpload = async ({ req, membership, request }) => {
     }),
   });
 
+  return processUpload({
+    req,
+    membership,
+    request,
+    body: {
+      asset_id: asset.$id,
+      job_id: job.$id,
+      content_type: contentType || currentAsset.mime_type || null,
+      content_sha1: contentSha1 || null,
+      backblaze_file_id: backblazeFileId || null,
+    },
+  });
+};
+
+const processUpload = async ({ req, membership, request, body: providedBody }) => {
+  const body = providedBody || parseBody(req);
+  const assetId = toNullableString(body.asset_id);
+  const jobId = toNullableString(body.job_id);
+  const providedFileId = toNullableString(body.backblaze_file_id);
+  const providedContentType = toNullableString(body.content_type);
+  const providedContentSha1 = toNullableString(body.content_sha1);
+
+  if (!assetId || !jobId) {
+    const error = new Error("asset_id and job_id are required to process an upload.");
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  const resolvedJob = await getDocument(request, collectionIds.processingJobs, jobId);
+  const asset = await getDocument(request, collectionIds.movieAssets, assetId);
+  const movie = await getMovie(request, asset.movie_id);
+
+  if (resolvedJob.input_asset_id && resolvedJob.input_asset_id !== assetId) {
+    const error = new Error("The provided asset_id does not match the processing job.");
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  if (!finalizableAssetStatuses.has(asset.processing_status) && asset.processing_status !== "ready") {
+    const error = new Error(`Asset cannot be processed from status ${asset.processing_status}.`);
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  if (asset.processing_status === "ready" && asset.final_key) {
+    return {
+      success: true,
+      asset,
+      job: resolvedJob,
+      already_processed: true,
+    };
+  }
+
+  const tempLocation = parseB2Key(asset.temp_key);
+  if (!tempLocation) {
+    const error = new Error("The asset is missing a valid temp_key.");
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  const b2 = getBackblazeConfig();
+  const destination = getDestinationForAssetType(b2, asset.asset_type);
+  const authorization = await authorizeBackblaze(b2);
+  const destinationBucketId = await resolveBucketId({
+    authorization,
+    config: b2,
+    bucketName: destination.bucketName,
+    bucketId: destination.bucketId,
+  });
+
+  await updateDocument(request, collectionIds.processingJobs, resolvedJob.$id, {
+    status: "running",
+    error_message: null,
+  });
+  await updateDocument(request, collectionIds.movieAssets, asset.$id, {
+    processing_status: "processing",
+  });
+
+  try {
+    let sourceFileVersion = null;
+    if (providedFileId) {
+      sourceFileVersion = {
+        fileId: providedFileId,
+        fileName: tempLocation.objectKey,
+      };
+    } else {
+      sourceFileVersion = await getBackblazeFileVersion({
+        authorization,
+        bucketId: b2.tempBucketId,
+        objectKey: tempLocation.objectKey,
+      });
+    }
+
+    if (!sourceFileVersion?.fileId) {
+      const error = new Error("Temp file could not be located in Backblaze.");
+      error.statusCode = APPWRITE_BAD_REQUEST;
+      throw error;
+    }
+
+    const copiedFile = await copyBackblazeFile({
+      apiUrl: authorization.apiInfo.storageApi.apiUrl,
+      authorizationToken: authorization.authorizationToken,
+      sourceFileId: sourceFileVersion.fileId,
+      destinationBucketId,
+      fileName: tempLocation.objectKey,
+    });
+
+    await deleteBackblazeFileVersion({
+      apiUrl: authorization.apiInfo.storageApi.apiUrl,
+      authorizationToken: authorization.authorizationToken,
+      fileName: tempLocation.objectKey,
+      fileId: sourceFileVersion.fileId,
+    });
+
+    const finalKey = `b2://${destination.bucketName}/${tempLocation.objectKey}`;
+    const finalizedAsset = await updateDocument(request, collectionIds.movieAssets, asset.$id, {
+      bucket: destination.bucketName,
+      final_key: finalKey,
+      processing_status: "ready",
+      mime_type: providedContentType || copiedFile.contentType || asset.mime_type || null,
+      size_bytes: copiedFile.contentLength || asset.size_bytes || null,
+    });
+    const completedJob = await updateDocument(request, collectionIds.processingJobs, resolvedJob.$id, {
+      status: "completed",
+      error_message: null,
+      output_asset_id: asset.$id,
+    });
+
+    const moviePatch = buildMovieAssetPatch({
+      assetType: asset.asset_type,
+      finalKey,
+      currentMovie: movie,
+      tempBucketName: b2.tempBucketName,
+    });
+    const updatedMovie =
+      Object.keys(moviePatch).length > 0
+        ? await updateDocument(request, collectionIds.movies, movie.$id, moviePatch)
+        : movie;
+
+    await writeAuditLog(request, membership, req, {
+      action: "processing_completed",
+      target_type: "movie_asset",
+      target_id: asset.$id,
+      target_label: asset.label || asset.asset_type,
+      old_value_json: JSON.stringify({
+        temp_key: asset.temp_key,
+        final_key: asset.final_key || null,
+        job_status: resolvedJob.status,
+        processing_status: asset.processing_status,
+      }),
+      new_value_json: JSON.stringify({
+        temp_key: finalizedAsset.temp_key,
+        final_key: finalizedAsset.final_key,
+        job_status: completedJob.status,
+        processing_status: finalizedAsset.processing_status,
+        content_type:
+          providedContentType || copiedFile.contentType || asset.mime_type || null,
+        content_sha1: providedContentSha1 || null,
+        movie_status: updatedMovie.status,
+      }),
+    });
+
+    return {
+      success: true,
+      asset: finalizedAsset,
+      job: completedJob,
+      movie: updatedMovie,
+    };
+  } catch (caughtError) {
+    await updateDocument(request, collectionIds.processingJobs, resolvedJob.$id, {
+      status: "failed",
+      error_message: caughtError?.message || "Asset finalization failed.",
+    }).catch(() => null);
+    await updateDocument(request, collectionIds.movieAssets, asset.$id, {
+      processing_status: "failed",
+    }).catch(() => null);
+    throw caughtError;
+  }
+};
+
+const cancelUpload = async ({ req, membership, request }) => {
+  const body = parseBody(req);
+  const jobId = toRequiredString(body.job_id, "job_id");
+  const currentJob = await getDocument(request, collectionIds.processingJobs, jobId);
+  const currentAsset = currentJob.input_asset_id
+    ? await getDocument(request, collectionIds.movieAssets, currentJob.input_asset_id)
+    : null;
+
+  if (currentJob.status === "completed") {
+    const error = new Error("Completed jobs cannot be cancelled.");
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  if (currentJob.status === "cancelled") {
+    return { success: true, already_cancelled: true, job: currentJob };
+  }
+
+  const b2 = getBackblazeConfig();
+  const authorization = await authorizeBackblaze(b2);
+
+  if (currentAsset?.temp_key && !currentAsset.final_key) {
+    const tempLocation = parseB2Key(currentAsset.temp_key);
+    if (tempLocation?.objectKey) {
+      const tempFileVersion = await getBackblazeFileVersion({
+        authorization,
+        bucketId: b2.tempBucketId,
+        objectKey: tempLocation.objectKey,
+      }).catch(() => null);
+
+      if (tempFileVersion?.fileId) {
+        await deleteBackblazeFileVersion({
+          apiUrl: authorization.apiInfo.storageApi.apiUrl,
+          authorizationToken: authorization.authorizationToken,
+          fileName: tempLocation.objectKey,
+          fileId: tempFileVersion.fileId,
+        }).catch(() => null);
+      }
+    }
+  }
+
+  const job = await updateDocument(request, collectionIds.processingJobs, jobId, {
+    status: "cancelled",
+    error_message: "Cancelled by admin.",
+  });
+  const asset = currentAsset
+    ? await updateDocument(request, collectionIds.movieAssets, currentAsset.$id, {
+        processing_status: currentAsset.final_key ? currentAsset.processing_status : "failed",
+      })
+    : null;
+  const movie =
+    currentAsset && ["uploading", "processing"].includes((await getMovie(request, currentAsset.movie_id)).status)
+      ? await updateDocument(request, collectionIds.movies, currentAsset.movie_id, {
+          status: "processing_failed",
+        })
+      : null;
+
+  await writeAuditLog(request, membership, req, {
+    action: "processing_cancelled",
+    target_type: "processing_job",
+    target_id: jobId,
+    target_label: currentJob.job_type,
+    old_value_json: JSON.stringify({
+      status: currentJob.status,
+      asset_status: currentAsset?.processing_status || null,
+    }),
+    new_value_json: JSON.stringify({
+      status: job.status,
+      asset_status: asset?.processing_status || null,
+      movie_status: movie?.status || null,
+    }),
+  });
+
   return {
     success: true,
-    asset,
     job,
+    asset,
+    movie,
+  };
+};
+
+const deleteUpload = async ({ req, membership, request }) => {
+  const body = parseBody(req);
+  const assetId = toNullableString(body.asset_id);
+  const jobId = toNullableString(body.job_id);
+
+  if (!assetId && !jobId) {
+    const error = new Error("asset_id or job_id is required to delete an upload record.");
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  let currentJob = null;
+  if (jobId) {
+    currentJob = await getDocument(request, collectionIds.processingJobs, jobId);
+  }
+
+  const resolvedAssetId = assetId || currentJob?.input_asset_id || null;
+  let currentAsset = null;
+  if (resolvedAssetId) {
+    currentAsset = await getDocument(request, collectionIds.movieAssets, resolvedAssetId);
+  }
+
+  if (!currentAsset && !currentJob) {
+    const error = new Error("Upload tracking record not found.");
+    error.statusCode = APPWRITE_NOT_FOUND;
+    throw error;
+  }
+
+  const activeJob =
+    currentJob ||
+    (currentAsset
+      ? (await listDocuments(request, collectionIds.processingJobs)).find(
+          (job) => job.input_asset_id === currentAsset.$id
+        ) || null
+      : null);
+
+  if (activeJob && ["queued", "running"].includes(activeJob.status)) {
+    const error = new Error("Cancel the job before deleting its tracking record.");
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  let movie = null;
+  if (currentAsset?.movie_id) {
+    movie = await getMovie(request, currentAsset.movie_id).catch(() => null);
+  }
+
+  let tempFileDeleted = false;
+  if (currentAsset?.temp_key && !currentAsset.final_key) {
+    const tempLocation = parseB2Key(currentAsset.temp_key);
+
+    if (tempLocation?.objectKey) {
+      const b2 = getBackblazeConfig();
+      const authorization = await authorizeBackblaze(b2);
+      const tempFileVersion = await getBackblazeFileVersion({
+        authorization,
+        bucketId: b2.tempBucketId,
+        objectKey: tempLocation.objectKey,
+      }).catch(() => null);
+
+      if (tempFileVersion?.fileId) {
+        await deleteBackblazeFileVersion({
+          apiUrl: authorization.apiInfo.storageApi.apiUrl,
+          authorizationToken: authorization.authorizationToken,
+          fileName: tempLocation.objectKey,
+          fileId: tempFileVersion.fileId,
+        }).catch(() => null);
+        tempFileDeleted = true;
+      }
+    }
+  }
+
+  let updatedMovie = movie;
+  if (movie && currentAsset) {
+    const moviePatch = buildMovieAssetRemovalPatch({
+      assetType: currentAsset.asset_type,
+      currentMovie: movie,
+      tempKey: currentAsset.temp_key || null,
+      finalKey: currentAsset.final_key || null,
+    });
+
+    if (Object.keys(moviePatch).length > 0) {
+      updatedMovie = await updateDocument(request, collectionIds.movies, movie.$id, moviePatch);
+    }
+  }
+
+  if (activeJob?.$id) {
+    await deleteDocument(request, collectionIds.processingJobs, activeJob.$id);
+  }
+
+  if (currentAsset?.$id) {
+    await deleteDocument(request, collectionIds.movieAssets, currentAsset.$id);
+  }
+
+  await writeAuditLog(request, membership, req, {
+    action: "upload_deleted",
+    target_type: "movie_asset",
+    target_id: currentAsset?.$id || activeJob?.input_asset_id || assetId || jobId,
+    target_label:
+      currentAsset?.label ||
+      currentAsset?.asset_type ||
+      activeJob?.job_type ||
+      "upload record",
+    old_value_json: JSON.stringify({
+      asset: currentAsset ? cloneForAudit(currentAsset) : null,
+      job: activeJob ? cloneForAudit(activeJob) : null,
+      movie_id: updatedMovie?.$id || movie?.$id || null,
+    }),
+    new_value_json: JSON.stringify({
+      deleted_asset_id: currentAsset?.$id || null,
+      deleted_job_id: activeJob?.$id || null,
+      temp_file_deleted: tempFileDeleted,
+    }),
+  });
+
+  return {
+    success: true,
+    deleted_asset_id: currentAsset?.$id || null,
+    deleted_job_id: activeJob?.$id || null,
+    temp_file_deleted: tempFileDeleted,
+    movie: updatedMovie,
   };
 };
 
@@ -1143,6 +1864,21 @@ const routeRequest = async ({ req, res, context }) => {
   if (method === "POST" && path === "/uploads/complete") {
     assertCapability(context.capabilities, "uploads.manage");
     return jsonResponse(res, await completeUpload({ ...context, req }));
+  }
+
+  if (method === "POST" && path === "/uploads/process") {
+    assertCapability(context.capabilities, "uploads.manage");
+    return jsonResponse(res, await processUpload({ ...context, req }));
+  }
+
+  if (method === "POST" && path === "/uploads/cancel") {
+    assertCapability(context.capabilities, "uploads.manage");
+    return jsonResponse(res, await cancelUpload({ ...context, req }));
+  }
+
+  if (method === "POST" && path === "/uploads/delete") {
+    assertCapability(context.capabilities, "uploads.manage");
+    return jsonResponse(res, await deleteUpload({ ...context, req }));
   }
 
   return jsonResponse(

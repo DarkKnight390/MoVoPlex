@@ -14,6 +14,9 @@ Implemented routes today:
 - `PATCH /homepage`
 - `POST /uploads/begin`
 - `POST /uploads/complete`
+- `POST /uploads/process`
+- `POST /uploads/cancel`
+- `POST /uploads/delete`
 
 The frontend now uses this function for both admin mutations and upload orchestration.
 
@@ -27,7 +30,8 @@ Upload flow:
 6. Function authorizes against Backblaze and returns a live `upload_url` plus `authorization_token`
 7. Browser uploads the selected file directly to Backblaze
 8. Browser calls `POST /uploads/complete`
-9. Function marks the asset/job complete and appends another audit log
+9. Function finalizes the uploaded temp object into the correct destination bucket
+10. Function updates the asset/movie records, cleans up the temp file, and appends audit logs
 
 ## Folder layout
 
@@ -50,6 +54,10 @@ BACKBLAZE_KEY_ID=your-backblaze-key-id
 BACKBLAZE_APPLICATION_KEY=your-backblaze-application-key
 BACKBLAZE_TEMP_PROCESSING_BUCKET_ID=your-temp-processing-bucket-id
 BACKBLAZE_TEMP_PROCESSING_BUCKET_NAME=movoplex-temp-processing
+BACKBLAZE_VIDEOS_BUCKET_NAME=movoplex-videos
+BACKBLAZE_TRAILERS_BUCKET_NAME=movoplex-trailers
+BACKBLAZE_THUMBNAILS_BUCKET_NAME=movoplex-thumbnails
+BACKBLAZE_SUBTITLES_BUCKET_NAME=movoplex-subtitles
 ```
 
 Appwrite injects the runtime auth values used by the function automatically:
@@ -77,6 +85,7 @@ This function now covers the routes used by the current admin console screens:
 - creator status updates
 - category save / update by slug
 - homepage hero + row ordering
-- upload begin / complete
+- upload begin / complete / process / cancel
+- upload record cleanup / delete
 
 It also filters writes to attributes that actually exist in the live Appwrite collections, which helps when your remote project has schema drift or hit Appwrite's attribute limit during earlier bootstraps.

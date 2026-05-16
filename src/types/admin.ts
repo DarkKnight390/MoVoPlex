@@ -104,10 +104,13 @@ export const auditActions = [
   "creator_updated",
   "upload_started",
   "upload_completed",
+  "processing_completed",
+  "processing_cancelled",
   "homepage_updated",
   "role_updated",
   "subscriber_updated",
   "processing_retried",
+  "upload_deleted",
 ] as const;
 
 export type AdminRole = (typeof adminRoles)[number];

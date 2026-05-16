@@ -25,6 +25,19 @@ export type AdminUploadTarget = {
   job: AppwriteProcessingJobDocument;
 };
 
+export type AdminUploadMutationResult = {
+  success: boolean;
+  retry?: boolean;
+  already_processed?: boolean;
+  already_cancelled?: boolean;
+  deleted_asset_id?: string;
+  deleted_job_id?: string;
+  temp_file_deleted?: boolean;
+  message?: string;
+  asset?: AppwriteMovieAssetDocument;
+  job?: AppwriteProcessingJobDocument;
+};
+
 type BackblazeUploadResult = {
   fileId?: string;
   fileName?: string;
@@ -333,8 +346,29 @@ export const adminConsoleApi = {
     );
   },
   completeUpload(payload: Record<string, unknown>) {
-    return executeAdminConsole<{ success: boolean }>(
+    return executeAdminConsole<AdminUploadMutationResult>(
       "/uploads/complete",
+      ExecutionMethod.POST,
+      payload
+    );
+  },
+  processUpload(payload: Record<string, unknown>) {
+    return executeAdminConsole<AdminUploadMutationResult>(
+      "/uploads/process",
+      ExecutionMethod.POST,
+      payload
+    );
+  },
+  cancelUpload(payload: Record<string, unknown>) {
+    return executeAdminConsole<AdminUploadMutationResult>(
+      "/uploads/cancel",
+      ExecutionMethod.POST,
+      payload
+    );
+  },
+  deleteUpload(payload: Record<string, unknown>) {
+    return executeAdminConsole<AdminUploadMutationResult>(
+      "/uploads/delete",
       ExecutionMethod.POST,
       payload
     );
