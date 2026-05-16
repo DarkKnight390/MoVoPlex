@@ -93,30 +93,21 @@ const executeAdminConsole = async <TResult>(
   return JSON.parse(responseText) as TResult;
 };
 
-const bytesToHex = (bytes: Uint8Array) =>
-  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-
-const getFileSha1 = async (file: File) => {
-  const digest = await crypto.subtle.digest("SHA-1", await file.arrayBuffer());
-  return bytesToHex(new Uint8Array(digest));
-};
-
 export const uploadBrowserFileToBackblaze = async (
   file: File,
   target: AdminUploadTarget,
   onProgress?: UploadProgressCallback
 ) => {
-  const contentSha1 = await getFileSha1(file);
   const uploadContentType =
     file.type && !file.type.startsWith("video/") ? file.type : "b2/x-auto";
   const payload = await new Promise<BackblazeUploadResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", target.upload_url);
-    xhr.timeout = 15 * 60 * 1000;
+    xhr.timeout = 90 * 60 * 1000;
     xhr.setRequestHeader("Authorization", target.authorization_token);
     xhr.setRequestHeader("X-Bz-File-Name", encodeURIComponent(target.object_key));
     xhr.setRequestHeader("Content-Type", uploadContentType);
-    xhr.setRequestHeader("X-Bz-Content-Sha1", contentSha1);
+    xhr.setRequestHeader("X-Bz-Content-Sha1", "do_not_verify");
 
     xhr.upload.onprogress = (event) => {
       if (!onProgress || !event.lengthComputable) {
@@ -168,7 +159,8 @@ export const uploadBrowserFileToBackblaze = async (
   });
 
   return {
-    contentSha1,
+    contentSha1:
+      String(payload.contentSha1 || payload.content_sha1 || "").trim() || null,
     response: payload,
   };
 };

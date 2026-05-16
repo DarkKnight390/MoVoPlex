@@ -41,6 +41,15 @@ type MovieFormState = {
 type MediaFieldKey = "poster" | "banner" | "trailer" | "video_url";
 
 type SelectedMovieFiles = Record<MediaFieldKey, File | null>;
+type UploadPhase = "idle" | "preparing" | "uploading" | "confirming" | "queued" | "failed";
+type UploadState = {
+  phase: UploadPhase;
+  progress: number;
+  message: string;
+};
+type UploadStateMap = Record<MediaFieldKey, UploadState>;
+
+const MAX_BROWSER_UPLOAD_BYTES = 3 * 1024 * 1024 * 1024;
 
 const emptyMovieForm: MovieFormState = {
   title: "",
@@ -78,6 +87,13 @@ const createEmptyUploadProgress = (): Record<MediaFieldKey, number> => ({
   banner: 0,
   trailer: 0,
   video_url: 0,
+});
+
+const createEmptyUploadState = (): UploadStateMap => ({
+  poster: { phase: "idle", progress: 0, message: "" },
+  banner: { phase: "idle", progress: 0, message: "" },
+  trailer: { phase: "idle", progress: 0, message: "" },
+  video_url: { phase: "idle", progress: 0, message: "" },
 });
 
 const validMovieStatuses = new Set<MovieStatus>(movieStatuses);
@@ -139,6 +155,10 @@ const formatFileSize = (size: number) => {
     return "0 KB";
   }
 
+  if (size >= 1024 * 1024 * 1024) {
+    return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+
   if (size < 1024 * 1024) {
     return `${Math.max(1, Math.round(size / 1024))} KB`;
   }
@@ -180,7 +200,7 @@ type MediaFileFieldProps = {
   field: MediaFieldKey;
   storedValue: string;
   selectedFile: File | null;
-  uploadProgress?: number;
+  uploadState: UploadState;
   onFileChange: (file: File | null) => void;
 };
 
@@ -188,10 +208,12 @@ const MediaFileField = ({
   field,
   storedValue,
   selectedFile,
-  uploadProgress,
+  uploadState,
   onFileChange,
 }: MediaFileFieldProps) => {
   const meta = mediaFieldMeta[field];
+  const showUploadState = uploadState.phase !== "idle";
+  const isUploading = uploadState.phase === "uploading";
 
   return (
     <div className="rounded-2xl border border-gray-800 bg-black/30 p-4">
@@ -229,8 +251,25 @@ const MediaFileField = ({
             <p className="mt-1 text-xs text-green-200/80">
               {selectedFile.type || "Unknown type"} - {formatFileSize(selectedFile.size)}
             </p>
-            {uploadProgress ? (
-              <p className="mt-2 text-xs text-green-200/90">Upload progress: {uploadProgress}%</p>
+            {showUploadState ? (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between gap-3 text-xs text-green-100">
+                  <span className="font-medium">{uploadState.message}</span>
+                  <span>{uploadState.progress}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      uploadState.phase === "failed"
+                        ? "bg-red-500"
+                        : isUploading
+                          ? "bg-green-400"
+                          : "bg-green-500"
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(0, uploadState.progress))}%` }}
+                  />
+                </div>
+              </div>
             ) : null}
           </div>
         ) : storedValue ? (
@@ -282,9 +321,8 @@ const MoviesPage = () => {
   const [selectedFiles, setSelectedFiles] = useState<SelectedMovieFiles>(
     createEmptySelectedFiles
   );
-  const [uploadProgress, setUploadProgress] = useState<Record<MediaFieldKey, number>>(
-    createEmptyUploadProgress
-  );
+  const [uploadProgress, setUploadProgress] = useState<Record<MediaFieldKey, number>>(createEmptyUploadProgress);
+  const [uploadState, setUploadState] = useState<UploadStateMap>(createEmptyUploadState);
   const { data: movies = [] } = useAdminMovies();
   const { data: creators = [] } = useCreatorProfiles();
   const { data: categories = [] } = useCategories();
@@ -320,10 +358,32 @@ const MoviesPage = () => {
     setForm(emptyMovieForm);
     setSelectedFiles(createEmptySelectedFiles());
     setUploadProgress(createEmptyUploadProgress());
+    setUploadState(createEmptyUploadState());
   };
 
   const setSelectedFile = (field: MediaFieldKey, file: File | null) => {
+    if (file && file.size > MAX_BROWSER_UPLOAD_BYTES) {
+      toast.error(
+        `${mediaFieldMeta[field].label} is larger than the 3 GB upload limit. Choose a smaller file.`
+      );
+      return;
+    }
+
     setSelectedFiles((current) => ({ ...current, [field]: file }));
+    setUploadProgress((current) => ({ ...current, [field]: 0 }));
+    setUploadState((current) => ({
+      ...current,
+      [field]: file
+        ? {
+            phase: "idle",
+            progress: 0,
+            message:
+              field === "video_url"
+                ? "Ready to upload. Main video uploads support up to 3 GB."
+                : "Ready to upload.",
+          }
+        : { phase: "idle", progress: 0, message: "" },
+    }));
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -414,6 +474,14 @@ const MoviesPage = () => {
               field,
               file
             );
+            setUploadState((current) => ({
+              ...current,
+              [field]: {
+                phase: "preparing",
+                progress: 0,
+                message: "Preparing signed upload target...",
+              },
+            }));
             const uploadTarget = await beginUpload.mutateAsync({
               movie_id: savedMovie.$id,
               asset_type: meta.assetType,
@@ -428,10 +496,37 @@ const MoviesPage = () => {
             let uploadResult;
             try {
               setUploadProgress((current) => ({ ...current, [field]: 0 }));
+              setUploadState((current) => ({
+                ...current,
+                [field]: {
+                  phase: "uploading",
+                  progress: 0,
+                  message: `Uploading ${formatFileSize(file.size)} to secure storage...`,
+                },
+              }));
               uploadResult = await uploadBrowserFileToBackblaze(file, uploadTarget, (progress) => {
                 setUploadProgress((current) => ({ ...current, [field]: progress }));
+                setUploadState((current) => ({
+                  ...current,
+                  [field]: {
+                    phase: "uploading",
+                    progress,
+                    message: `Uploading ${formatFileSize(file.size)} to secure storage...`,
+                  },
+                }));
               });
             } catch (uploadFailure) {
+              setUploadState((current) => ({
+                ...current,
+                [field]: {
+                  phase: "failed",
+                  progress: current[field].progress,
+                  message:
+                    uploadFailure instanceof Error
+                      ? uploadFailure.message
+                      : "Upload failed before the file reached Backblaze.",
+                },
+              }));
               await cancelUpload
                 .mutateAsync({ job_id: uploadTarget.job.$id })
                 .catch(() => null);
@@ -444,6 +539,14 @@ const MoviesPage = () => {
               throw uploadFailure;
             }
 
+            setUploadState((current) => ({
+              ...current,
+              [field]: {
+                phase: "confirming",
+                progress: 100,
+                message: "Upload finished. Confirming the file with the backend...",
+              },
+            }));
             await completeUpload.mutateAsync({
               asset_id: uploadTarget.asset.$id,
               job_id: uploadTarget.job.$id,
@@ -468,6 +571,14 @@ const MoviesPage = () => {
                 ) || null,
             });
             setUploadProgress((current) => ({ ...current, [field]: 100 }));
+            setUploadState((current) => ({
+              ...current,
+              [field]: {
+                phase: "queued",
+                progress: 100,
+                message: "Upload confirmed. Queued for backend processing.",
+              },
+            }));
           }
         } catch (uploadError) {
           setEditingMovie(savedMovie);
@@ -582,30 +693,34 @@ const MoviesPage = () => {
                   field="poster"
                   storedValue={form.poster}
                   selectedFile={selectedFiles.poster}
-                  uploadProgress={uploadProgress.poster}
+                  uploadState={uploadState.poster}
                   onFileChange={(file) => setSelectedFile("poster", file)}
                 />
                 <MediaFileField
                   field="banner"
                   storedValue={form.banner}
                   selectedFile={selectedFiles.banner}
-                  uploadProgress={uploadProgress.banner}
+                  uploadState={uploadState.banner}
                   onFileChange={(file) => setSelectedFile("banner", file)}
                 />
                 <MediaFileField
                   field="trailer"
                   storedValue={form.trailer}
                   selectedFile={selectedFiles.trailer}
-                  uploadProgress={uploadProgress.trailer}
+                  uploadState={uploadState.trailer}
                   onFileChange={(file) => setSelectedFile("trailer", file)}
                 />
                 <MediaFileField
                   field="video_url"
                   storedValue={form.video_url}
                   selectedFile={selectedFiles.video_url}
-                  uploadProgress={uploadProgress.video_url}
+                  uploadState={uploadState.video_url}
                   onFileChange={(file) => setSelectedFile("video_url", file)}
                 />
+              </div>
+              <div className="rounded-2xl border border-gray-800 bg-black/30 p-4 text-sm text-gray-400">
+                Main video uploads support up to <span className="font-medium text-white">3 GB</span>.
+                Keep this page open until the status reaches <span className="font-medium text-white">Upload confirmed</span>.
               </div>
             </div>
             <div className="grid gap-4 md:grid-cols-3">
