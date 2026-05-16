@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,8 +25,6 @@ const UploadsPage = () => {
   >({});
   const [hiddenAssetIds, setHiddenAssetIds] = useState<string[]>([]);
   const [hiddenJobIds, setHiddenJobIds] = useState<string[]>([]);
-  const autoProcessedJobIds = useRef<Set<string>>(new Set());
-
   const assetsWithJobs = useMemo(
     () =>
       assets
@@ -161,63 +159,6 @@ const UploadsPage = () => {
     }
   };
 
-  useEffect(() => {
-    if (processUpload.isPending) {
-      return;
-    }
-
-    const candidate = assetsWithJobs.find(
-      ({ asset, job }) =>
-        Boolean(job?.$id) &&
-        !asset.final_key &&
-        ["queued"].includes(job?.status || "") &&
-        ["pending", "uploaded"].includes(asset.processing_status) &&
-        !autoProcessedJobIds.current.has(job!.$id)
-    );
-
-    if (!candidate?.job?.$id) {
-      return;
-    }
-
-    autoProcessedJobIds.current.add(candidate.job.$id);
-    setJobOverrides((current) => ({ ...current, [candidate.job!.$id]: "running" }));
-
-    processUpload
-      .mutateAsync({ asset_id: candidate.asset.$id, job_id: candidate.job.$id })
-      .then((result) => {
-        if (!result?.success) {
-          throw new Error(
-            result?.message || "Automatic finalization did not complete successfully."
-          );
-        }
-        setJobOverrides((current) => ({
-          ...current,
-          [candidate.job!.$id]: result.job?.status || "completed",
-        }));
-        setAssetOverrides((current) => ({
-          ...current,
-          [candidate.asset.$id]: {
-            ...(current[candidate.asset.$id] || {}),
-            processing_status: result.asset?.processing_status || "ready",
-            final_key: result.asset?.final_key || null,
-          },
-        }));
-      })
-      .catch(() => {
-        setJobOverrides((current) => ({
-          ...current,
-          [candidate.job!.$id]: "failed",
-        }));
-        setAssetOverrides((current) => ({
-          ...current,
-          [candidate.asset.$id]: {
-            ...(current[candidate.asset.$id] || {}),
-            processing_status: "failed",
-          },
-        }));
-      });
-  }, [assetsWithJobs, processUpload]);
-
   return (
     <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
       <Card className="border-gray-800 bg-gray-950 text-white">
@@ -278,7 +219,7 @@ const UploadsPage = () => {
               const canFinalize =
                 Boolean(job?.$id) &&
                 !asset.final_key &&
-                ["pending", "uploaded", "processing"].includes(asset.processing_status) &&
+                ["pending", "uploaded", "processing", "failed"].includes(asset.processing_status) &&
                 job?.status !== "cancelled";
               const canCancel =
                 Boolean(job?.$id) &&

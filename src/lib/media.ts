@@ -1,5 +1,6 @@
 const ABSOLUTE_URL_PATTERN = /^https?:\/\//i;
 const B2_URL_PATTERN = /^b2:\/\/([^/]+)\/(.+)$/i;
+const TEMP_PROCESSING_BUCKET = "movoplex-temp-processing";
 
 const trimSlashes = (value: string) => value.replace(/^\/+|\/+$/g, "");
 
@@ -45,6 +46,9 @@ export const resolveStoredAssetUrl = (value?: string | null) => {
 
   return `${baseUrl.replace(/\/+$/, "")}/${trimSlashes(value)}`;
 };
+
+export const isTempStoredAsset = (value?: string | null) =>
+  Boolean(value && value.startsWith(`b2://${TEMP_PROCESSING_BUCKET}/`));
 
 export const getYouTubeEmbedUrl = (url?: string | null) => {
   if (!url) {

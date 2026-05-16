@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useAdminMovies, useAdminMutation, useCategories, useCreatorProfiles } from "@/hooks/useAdminConsole";
 import { uploadBrowserFileToBackblaze } from "@/lib/adminConsoleApi";
-import { resolveStoredAssetUrl } from "@/lib/media";
+import { isTempStoredAsset, resolveStoredAssetUrl } from "@/lib/media";
 import { movieStatuses } from "@/types/admin";
 import { type AssetType, type MovieStatus } from "@/types/admin";
 import { type AppwriteMovieDocument } from "@/integrations/appwrite/types";
@@ -153,6 +153,20 @@ const buildPendingAssetLocation = (
     objectKey,
     tempKey: `b2://movoplex-temp-processing/${objectKey}`,
   };
+};
+
+const getPublishBlockers = (movie: AppwriteMovieDocument) => {
+  const blockers: string[] = [];
+
+  if (!movie.poster || isTempStoredAsset(movie.poster)) {
+    blockers.push("finalized poster");
+  }
+
+  if (!movie.video_url || isTempStoredAsset(movie.video_url)) {
+    blockers.push("finalized main video");
+  }
+
+  return blockers;
 };
 
 type MediaFileFieldProps = {
@@ -450,6 +464,13 @@ const MoviesPage = () => {
     const nextStatus =
       movie.status === "published" ? "unpublished" : "published";
 
+    const blockers = nextStatus === "published" ? getPublishBlockers(movie) : [];
+
+    if (blockers.length) {
+      toast.error(`Publish blocked. Missing ${blockers.join(" and ")}.`);
+      return;
+    }
+
     try {
       await publishMovie.mutateAsync({
         movieId: movie.$id,
@@ -640,7 +661,10 @@ const MoviesPage = () => {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {filteredMovies.map((movie) => (
+          {filteredMovies.map((movie) => {
+            const publishBlockers = getPublishBlockers(movie);
+
+            return (
             <div
               key={movie.$id}
               className="rounded-2xl border border-gray-800 bg-black/30 p-4"
@@ -669,6 +693,11 @@ const MoviesPage = () => {
                       <p className="line-clamp-2 text-sm text-gray-400">
                         {movie.description}
                       </p>
+                      {publishBlockers.length ? (
+                        <p className="text-xs text-amber-400">
+                          Publish blocked until this movie has: {publishBlockers.join(" and ")}.
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -703,7 +732,7 @@ const MoviesPage = () => {
                 </div>
               </div>
             </div>
-          ))}
+          )})}
           {!filteredMovies.length ? (
             <div className="rounded-2xl border border-gray-800 bg-black/30 p-6 text-sm text-gray-400">
               No movies found for this search.

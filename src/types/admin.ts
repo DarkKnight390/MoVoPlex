@@ -14,6 +14,7 @@ export const movieStatuses = [
   "draft",
   "uploading",
   "processing",
+  "ready",
   "processing_failed",
   "pending_review",
   "approved",

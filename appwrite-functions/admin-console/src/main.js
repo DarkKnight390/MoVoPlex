@@ -25,13 +25,14 @@ const capabilityMatrix = {
 };
 
 const uploadAssetTypes = new Set(["poster", "banner", "trailer", "main_video", "subtitle"]);
-const finalizableAssetStatuses = new Set(["pending", "uploaded", "processing"]);
+const finalizableAssetStatuses = new Set(["pending", "uploaded", "processing", "failed"]);
 const creatorStatuses = new Set(["pending", "approved", "verified", "suspended", "banned", "deleted"]);
 const subscriptionAvailabilities = new Set(["free", "subscriber_only", "scheduled"]);
 const movieStatuses = new Set([
   "draft",
   "uploading",
   "processing",
+  "ready",
   "processing_failed",
   "pending_review",
   "approved",
@@ -113,6 +114,7 @@ const collectionAttributeCache = new Map();
 const normalizeEndpoint = (value) => value?.replace(/\/+$/, "") || "";
 const jsonResponse = (res, body, status = 200) => res.json(body, status);
 const getHeader = (headers, name) => headers?.[name] || headers?.[name.toLowerCase()] || "";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const parseBody = (req) => {
   if (req.bodyJson && typeof req.bodyJson === "object") {
@@ -634,6 +636,15 @@ const parseB2Key = (value) => {
 const isTempB2Key = (value, tempBucketName) =>
   typeof value === "string" && value.startsWith(`b2://${tempBucketName}/`);
 
+const isFinalizedMovieMediaKey = (value, tempBucketName) =>
+  Boolean(value && parseB2Key(value) && !isTempB2Key(value, tempBucketName));
+
+const hasRequiredFinalizedMovieMedia = (movie, tempBucketName) =>
+  Boolean(
+    isFinalizedMovieMediaKey(movie?.poster, tempBucketName) &&
+      isFinalizedMovieMediaKey(movie?.video_url, tempBucketName)
+  );
+
 const getDestinationForAssetType = (config, assetType) => {
   const destination = config.bucketDestinations[assetType];
 
@@ -680,6 +691,32 @@ const getBackblazeFileVersion = async ({ authorization, bucketId, objectKey }) =
   );
 };
 
+const getBackblazeFileVersionWithRetry = async ({
+  authorization,
+  bucketId,
+  objectKey,
+  retries = 5,
+  delayMs = 1000,
+}) => {
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    const file = await getBackblazeFileVersion({
+      authorization,
+      bucketId,
+      objectKey,
+    }).catch(() => null);
+
+    if (file?.fileId) {
+      return file;
+    }
+
+    if (attempt < retries - 1) {
+      await sleep(delayMs);
+    }
+  }
+
+  return null;
+};
+
 const buildMovieAssetPatch = ({ assetType, finalKey, currentMovie, tempBucketName }) => {
   const patch = {};
 
@@ -712,16 +749,20 @@ const buildMovieAssetPatch = ({ assetType, finalKey, currentMovie, tempBucketNam
       (currentMovie.video_url && !isTempB2Key(currentMovie.video_url, tempBucketName))
   );
 
-  if (["draft", "uploading", "processing", "processing_failed"].includes(currentMovie.status)) {
-    patch.status = hasPoster && hasMainVideo ? "pending_review" : "processing";
+  if (
+    ["draft", "uploading", "processing", "ready", "processing_failed", "unpublished"].includes(
+      currentMovie.status
+    )
+  ) {
+    patch.status = hasPoster && hasMainVideo ? "ready" : "processing";
   }
 
   return patch;
 };
 
-const buildMovieAssetRemovalPatch = ({ assetType, currentMovie, tempKey, finalKey }) => {
+const buildMovieAssetRemovalPatch = ({ assetType, currentMovie, tempKey }) => {
   const patch = {};
-  const activeKey = finalKey || tempKey;
+  const activeKey = tempKey;
 
   if (!activeKey) {
     return patch;
@@ -995,11 +1036,30 @@ const publishMovie = async ({ req, membership, request, movieId }) => {
   const body = parseBody(req);
   const currentMovie = await getMovie(request, movieId);
   const nextStatus = toRequiredString(body.status, "Status");
+  const b2 = getBackblazeConfig();
 
   if (!["published", "unpublished", "scheduled"].includes(nextStatus)) {
     const error = new Error("Publish route only supports published, unpublished, or scheduled.");
     error.statusCode = APPWRITE_BAD_REQUEST;
     throw error;
+  }
+
+  if (nextStatus === "published") {
+    if (!hasRequiredFinalizedMovieMedia(currentMovie, b2.tempBucketName)) {
+      const error = new Error(
+        "Movie cannot be published until a finalized poster and main video are ready."
+      );
+      error.statusCode = APPWRITE_BAD_REQUEST;
+      throw error;
+    }
+
+    if (!["ready", "published", "unpublished", "scheduled"].includes(currentMovie.status)) {
+      const error = new Error(
+        `Movie cannot be published from status ${currentMovie.status}. Finish media processing first.`
+      );
+      error.statusCode = APPWRITE_BAD_REQUEST;
+      throw error;
+    }
   }
 
   const movie = await updateDocument(request, collectionIds.movies, movieId, {
@@ -1163,7 +1223,7 @@ const beginUpload = async ({ req, membership, request }) => {
         error_message: null,
       });
 
-  if (["draft", "processing_failed"].includes(movie.status)) {
+  if (["draft", "processing_failed", "ready", "unpublished"].includes(movie.status)) {
     await updateDocument(request, collectionIds.movies, movieId, {
       status: "uploading",
     });
@@ -1218,11 +1278,22 @@ const completeUpload = async ({ req, membership, request }) => {
     }
 
     const currentJob = await getDocument(request, collectionIds.processingJobs, jobId);
+    const currentAsset = currentJob.input_asset_id
+      ? await getDocument(request, collectionIds.movieAssets, currentJob.input_asset_id).catch(
+          () => null
+        )
+      : null;
 
     const job = await updateDocument(request, collectionIds.processingJobs, jobId, {
       status: "queued",
       error_message: null,
     });
+
+    if (currentAsset?.processing_status === "failed") {
+      await updateDocument(request, collectionIds.movieAssets, currentAsset.$id, {
+        processing_status: "uploaded",
+      }).catch(() => null);
+    }
 
     await writeAuditLog(request, membership, req, {
       action: "processing_retried",
@@ -1236,6 +1307,10 @@ const completeUpload = async ({ req, membership, request }) => {
       new_value_json: JSON.stringify({
         status: job.status,
         error_message: job.error_message || null,
+        asset_status:
+          currentAsset?.processing_status === "failed"
+            ? "uploaded"
+            : currentAsset?.processing_status || null,
       }),
     });
 
@@ -1250,6 +1325,7 @@ const completeUpload = async ({ req, membership, request }) => {
 
   const currentAsset = await getDocument(request, collectionIds.movieAssets, assetId);
   const currentJob = await getDocument(request, collectionIds.processingJobs, jobId);
+  const currentMovie = await getMovie(request, currentAsset.movie_id);
 
   const asset = await updateDocument(request, collectionIds.movieAssets, assetId, {
     processing_status: "uploaded",
@@ -1259,9 +1335,18 @@ const completeUpload = async ({ req, membership, request }) => {
   });
 
   const job = await updateDocument(request, collectionIds.processingJobs, jobId, {
-    status: "completed",
+    status: "queued",
     error_message: null,
   });
+
+  const movie =
+    ["draft", "uploading", "processing_failed", "ready", "unpublished"].includes(
+      currentMovie.status
+    )
+      ? await updateDocument(request, collectionIds.movies, currentMovie.$id, {
+          status: "processing",
+        })
+      : currentMovie;
 
   await writeAuditLog(request, membership, req, {
     action: "upload_completed",
@@ -1275,6 +1360,7 @@ const completeUpload = async ({ req, membership, request }) => {
     new_value_json: JSON.stringify({
       processing_status: asset.processing_status,
       job_status: job.status,
+      movie_status: movie.status,
       content_type: contentType || null,
       content_sha1: contentSha1 || null,
       backblaze_file_id: backblazeFileId || null,
@@ -1282,18 +1368,13 @@ const completeUpload = async ({ req, membership, request }) => {
     }),
   });
 
-  return processUpload({
-    req,
-    membership,
-    request,
-    body: {
-      asset_id: asset.$id,
-      job_id: job.$id,
-      content_type: contentType || currentAsset.mime_type || null,
-      content_sha1: contentSha1 || null,
-      backblaze_file_id: backblazeFileId || null,
-    },
-  });
+  return {
+    success: true,
+    asset,
+    job,
+    movie,
+    message: "Raw upload recorded. Asset is queued for backend processing.",
+  };
 };
 
 const processUpload = async ({ req, membership, request, body: providedBody }) => {
@@ -1368,7 +1449,7 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
         fileName: tempLocation.objectKey,
       };
     } else {
-      sourceFileVersion = await getBackblazeFileVersion({
+      sourceFileVersion = await getBackblazeFileVersionWithRetry({
         authorization,
         bucketId: b2.tempBucketId,
         objectKey: tempLocation.objectKey,
@@ -1458,6 +1539,11 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
     await updateDocument(request, collectionIds.movieAssets, asset.$id, {
       processing_status: "failed",
     }).catch(() => null);
+    if (["draft", "uploading", "processing", "ready", "unpublished"].includes(movie.status)) {
+      await updateDocument(request, collectionIds.movies, movie.$id, {
+        status: "processing_failed",
+      }).catch(() => null);
+    }
     throw caughtError;
   }
 };
@@ -1621,7 +1707,6 @@ const deleteUpload = async ({ req, membership, request }) => {
       assetType: currentAsset.asset_type,
       currentMovie: movie,
       tempKey: currentAsset.temp_key || null,
-      finalKey: currentAsset.final_key || null,
     });
 
     if (Object.keys(moviePatch).length > 0) {

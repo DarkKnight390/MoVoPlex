@@ -145,7 +145,7 @@ export const adminConsoleApi = {
     const response = await databases.listDocuments(
       appwriteConfig.databaseId,
       appwriteConfig.collections.movies,
-      [Query.equal("status", ["pending_review"]), Query.orderDesc("$updatedAt")]
+      [Query.equal("status", ["ready"]), Query.orderDesc("$updatedAt")]
     );
 
     return response.documents as AppwriteMovieDocument[];
