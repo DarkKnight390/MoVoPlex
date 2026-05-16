@@ -101,12 +101,15 @@ export const uploadBrowserFileToBackblaze = async (
   onProgress?: UploadProgressCallback
 ) => {
   const contentSha1 = await getFileSha1(file);
+  const uploadContentType =
+    file.type && !file.type.startsWith("video/") ? file.type : "b2/x-auto";
   const payload = await new Promise<BackblazeUploadResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", target.upload_url);
+    xhr.timeout = 15 * 60 * 1000;
     xhr.setRequestHeader("Authorization", target.authorization_token);
     xhr.setRequestHeader("X-Bz-File-Name", encodeURIComponent(target.object_key));
-    xhr.setRequestHeader("Content-Type", file.type || "b2/x-auto");
+    xhr.setRequestHeader("Content-Type", uploadContentType);
     xhr.setRequestHeader("X-Bz-Content-Sha1", contentSha1);
 
     xhr.upload.onprogress = (event) => {
@@ -117,11 +120,26 @@ export const uploadBrowserFileToBackblaze = async (
       onProgress(Math.round((event.loaded / event.total) * 100));
     };
 
-    xhr.onerror = () => reject(new Error("Backblaze upload failed."));
+    xhr.onerror = () =>
+      reject(
+        new Error(
+          xhr.status === 0
+            ? "Backblaze upload was blocked before completion. This usually means a browser, network, or CORS problem."
+            : `Backblaze upload failed with status ${xhr.status}.`
+        )
+      );
     xhr.onabort = () => reject(new Error("Backblaze upload was cancelled."));
+    xhr.ontimeout = () =>
+      reject(new Error("Backblaze upload timed out before the browser finished sending the file."));
     xhr.onload = () => {
       const rawResponse = xhr.responseText || "";
-      const parsed = (rawResponse ? JSON.parse(rawResponse) : null) as BackblazeUploadResult | null;
+      let parsed = null as BackblazeUploadResult | null;
+
+      try {
+        parsed = rawResponse ? (JSON.parse(rawResponse) as BackblazeUploadResult) : null;
+      } catch {
+        parsed = null;
+      }
 
       if (xhr.status >= 200 && xhr.status < 300 && parsed) {
         resolve(parsed);
@@ -130,7 +148,12 @@ export const uploadBrowserFileToBackblaze = async (
 
       reject(
         new Error(
-          String(parsed?.message || parsed?.code || `Backblaze upload failed with status ${xhr.status}.`)
+          String(
+            parsed?.message ||
+              parsed?.code ||
+              rawResponse ||
+              `Backblaze upload failed with status ${xhr.status}.`
+          )
         )
       );
     };
