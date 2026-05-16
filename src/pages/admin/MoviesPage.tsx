@@ -73,6 +73,21 @@ const createEmptySelectedFiles = (): SelectedMovieFiles => ({
   video_url: null,
 });
 
+const validMovieStatuses = new Set<MovieStatus>(movieStatuses);
+const validSubscriptionAvailabilities = new Set<
+  MovieFormState["subscription_availability"]
+>(["free", "subscriber_only", "scheduled"]);
+
+const normalizeMovieStatus = (value: string | null | undefined): MovieStatus =>
+  value && validMovieStatuses.has(value as MovieStatus) ? (value as MovieStatus) : "draft";
+
+const normalizeSubscriptionAvailability = (
+  value: string | null | undefined
+): MovieFormState["subscription_availability"] =>
+  value && validSubscriptionAvailabilities.has(value as MovieFormState["subscription_availability"])
+    ? (value as MovieFormState["subscription_availability"])
+    : "subscriber_only";
+
 const mediaFieldMeta: Record<
   MediaFieldKey,
   { label: string; accept: string; assetType: AssetType; bucketFolder: string }
@@ -229,9 +244,9 @@ const mapMovieToForm = (movie: AppwriteMovieDocument): MovieFormState => ({
       ? String(movie.revenue_share_percent)
       : "",
   release_date: movie.release_date || "",
-  subscription_availability: movie.subscription_availability || "subscriber_only",
+  subscription_availability: normalizeSubscriptionAvailability(movie.subscription_availability),
   category_ids: (movie.category_ids || []).join(", "),
-  status: movie.status,
+  status: normalizeMovieStatus(movie.status),
 });
 
 const MoviesPage = () => {
@@ -319,13 +334,15 @@ const MoviesPage = () => {
         ? Number(form.revenue_share_percent)
         : null,
       release_date: form.release_date || null,
-      subscription_availability: form.subscription_availability,
+      subscription_availability: normalizeSubscriptionAvailability(
+        form.subscription_availability
+      ),
       category_ids: form.category_ids
         .split(",")
         .map((value) => value.trim())
         .filter(Boolean),
-      status: form.status,
-      featured_on_homepage: form.status === "published",
+      status: normalizeMovieStatus(form.status),
+      featured_on_homepage: normalizeMovieStatus(form.status) === "published",
     };
 
     try {
