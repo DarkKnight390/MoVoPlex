@@ -4,6 +4,8 @@ const APPWRITE_FORBIDDEN = 403;
 const APPWRITE_BAD_REQUEST = 400;
 const APPWRITE_NOT_FOUND = 404;
 const APPWRITE_INTERNAL_ERROR = 500;
+const LARGE_FILE_UPLOAD_THRESHOLD_BYTES = 50 * 1024 * 1024;
+const LARGE_FILE_PART_SIZE_BYTES = 20 * 1024 * 1024;
 
 const capabilityMatrix = {
   super_admin: [
@@ -525,6 +527,116 @@ const getBackblazeUploadUrl = async ({ apiUrl, authorizationToken, bucketId }) =
 
   if (!response.ok) {
     const error = new Error(payload?.message || "Backblaze upload URL request failed.");
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+};
+
+const startBackblazeLargeFile = async ({
+  apiUrl,
+  authorizationToken,
+  bucketId,
+  objectKey,
+  contentType,
+}) => {
+  const response = await fetch(`${apiUrl}/b2api/v4/b2_start_large_file`, {
+    method: "POST",
+    headers: {
+      Authorization: authorizationToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      bucketId,
+      fileName: objectKey,
+      contentType: contentType || "b2/x-auto",
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.message || "Backblaze large-file start request failed.");
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+};
+
+const getBackblazeUploadPartUrl = async ({ apiUrl, authorizationToken, fileId }) => {
+  const response = await fetch(`${apiUrl}/b2api/v4/b2_get_upload_part_url`, {
+    method: "POST",
+    headers: {
+      Authorization: authorizationToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      fileId,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.message || "Backblaze upload-part URL request failed.");
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+};
+
+const finishBackblazeLargeFile = async ({
+  apiUrl,
+  authorizationToken,
+  fileId,
+  partSha1Array,
+}) => {
+  const response = await fetch(`${apiUrl}/b2api/v4/b2_finish_large_file`, {
+    method: "POST",
+    headers: {
+      Authorization: authorizationToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      fileId,
+      partSha1Array,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.message || "Backblaze large-file finish request failed.");
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+};
+
+const cancelBackblazeLargeFile = async ({ apiUrl, authorizationToken, fileId }) => {
+  const response = await fetch(`${apiUrl}/b2api/v4/b2_cancel_large_file`, {
+    method: "POST",
+    headers: {
+      Authorization: authorizationToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      fileId,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.message || "Backblaze large-file cancel request failed.");
     error.statusCode = response.status;
     error.payload = payload;
     throw error;
@@ -1236,11 +1348,23 @@ const beginUpload = async ({ req, membership, request }) => {
     });
   const tempKey = `b2://${b2.tempBucketName}/${objectKey}`;
   const authorization = await authorizeBackblaze(b2);
-  const uploadTarget = await getBackblazeUploadUrl({
-    apiUrl: authorization.apiInfo.storageApi.apiUrl,
-    authorizationToken: authorization.authorizationToken,
-    bucketId: b2.tempBucketId,
-  });
+  const shouldUseLargeFileUpload =
+    assetType === "main_video" &&
+    Number.isFinite(Number(sizeBytes)) &&
+    Number(sizeBytes) >= LARGE_FILE_UPLOAD_THRESHOLD_BYTES;
+  const uploadTarget = shouldUseLargeFileUpload
+    ? await startBackblazeLargeFile({
+        apiUrl: authorization.apiInfo.storageApi.apiUrl,
+        authorizationToken: authorization.authorizationToken,
+        bucketId: b2.tempBucketId,
+        objectKey,
+        contentType: mimeType || "b2/x-auto",
+      })
+    : await getBackblazeUploadUrl({
+        apiUrl: authorization.apiInfo.storageApi.apiUrl,
+        authorizationToken: authorization.authorizationToken,
+        bucketId: b2.tempBucketId,
+      });
 
   const existingAssets = await listDocuments(request, collectionIds.movieAssets);
   const existingJobs = await listDocuments(request, collectionIds.processingJobs);
@@ -1325,11 +1449,14 @@ const beginUpload = async ({ req, membership, request }) => {
   });
 
   return {
-    upload_url: uploadTarget.uploadUrl,
-    authorization_token: uploadTarget.authorizationToken,
+    upload_mode: shouldUseLargeFileUpload ? "large" : "single",
+    upload_url: uploadTarget.uploadUrl || null,
+    authorization_token: uploadTarget.authorizationToken || null,
     bucket: b2.tempBucketName,
     temp_key: tempKey,
     object_key: objectKey,
+    large_file_id: uploadTarget.fileId || null,
+    part_size_bytes: shouldUseLargeFileUpload ? LARGE_FILE_PART_SIZE_BYTES : null,
     asset,
     job,
   };
@@ -1451,6 +1578,114 @@ const completeUpload = async ({ req, membership, request }) => {
     job,
     movie,
     message: "Raw upload recorded. Asset is queued for backend processing.",
+  };
+};
+
+const completeLargeUpload = async ({ req, membership, request }) => {
+  const body = parseBody(req);
+  const {
+    job_id: jobId,
+    asset_id: assetId,
+    uploaded_bytes: uploadedBytes,
+    content_type: contentType,
+    large_file_id: largeFileId,
+    part_sha1_array: partSha1Array,
+  } = body;
+
+  if (!assetId || !jobId || !largeFileId || !Array.isArray(partSha1Array) || !partSha1Array.length) {
+    const error = new Error(
+      "asset_id, job_id, large_file_id, and part_sha1_array are required to finish a large upload."
+    );
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  const currentAsset = await getDocument(request, collectionIds.movieAssets, assetId);
+  const currentJob = await getDocument(request, collectionIds.processingJobs, jobId);
+  const currentMovie = await getMovie(request, currentAsset.movie_id);
+  const b2 = getBackblazeConfig();
+  const authorization = await authorizeBackblaze(b2);
+  const finishedFile = await finishBackblazeLargeFile({
+    apiUrl: authorization.apiInfo.storageApi.apiUrl,
+    authorizationToken: authorization.authorizationToken,
+    fileId: largeFileId,
+    partSha1Array,
+  });
+
+  const asset = await updateDocument(request, collectionIds.movieAssets, assetId, {
+    processing_status: "uploaded",
+    mime_type: contentType || currentAsset.mime_type || null,
+    size_bytes:
+      Number.isFinite(Number(uploadedBytes)) ? Number(uploadedBytes) : currentAsset.size_bytes || null,
+  });
+
+  const job = await updateDocument(request, collectionIds.processingJobs, jobId, {
+    status: "queued",
+    error_message: null,
+  });
+
+  const movie =
+    ["draft", "uploading", "processing_failed", "ready", "unpublished"].includes(
+      currentMovie.status
+    )
+      ? await updateDocument(request, collectionIds.movies, currentMovie.$id, {
+          status: "processing",
+        })
+      : currentMovie;
+
+  await writeAuditLog(request, membership, req, {
+    action: "upload_completed",
+    target_type: "movie_asset",
+    target_id: assetId,
+    target_label: currentAsset.label || currentAsset.asset_type,
+    old_value_json: JSON.stringify({
+      processing_status: currentAsset.processing_status,
+      job_status: currentJob.status,
+    }),
+    new_value_json: JSON.stringify({
+      processing_status: asset.processing_status,
+      job_status: job.status,
+      movie_status: movie.status,
+      content_type: contentType || null,
+      backblaze_file_id: finishedFile.fileId || largeFileId,
+      uploaded_bytes: Number.isFinite(Number(uploadedBytes)) ? Number(uploadedBytes) : null,
+      upload_mode: "large",
+    }),
+  });
+
+  return {
+    success: true,
+    asset,
+    job,
+    movie,
+    message: "Large upload recorded. Asset is queued for backend processing.",
+  };
+};
+
+const getLargeUploadPartTarget = async ({ req }) => {
+  const body = parseBody(req);
+  const fileId = toRequiredString(body.file_id, "file_id");
+  const partNumber = Number(body.part_number);
+
+  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10000) {
+    const error = new Error("part_number must be an integer between 1 and 10000.");
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  const b2 = getBackblazeConfig();
+  const authorization = await authorizeBackblaze(b2);
+  const partTarget = await getBackblazeUploadPartUrl({
+    apiUrl: authorization.apiInfo.storageApi.apiUrl,
+    authorizationToken: authorization.authorizationToken,
+    fileId,
+  });
+
+  return {
+    file_id: fileId,
+    part_number: partNumber,
+    upload_url: partTarget.uploadUrl,
+    authorization_token: partTarget.authorizationToken,
   };
 };
 
@@ -1628,6 +1863,7 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
 const cancelUpload = async ({ req, membership, request }) => {
   const body = parseBody(req);
   const jobId = toRequiredString(body.job_id, "job_id");
+  const largeFileId = toNullableString(body.large_file_id);
   const currentJob = await getDocument(request, collectionIds.processingJobs, jobId);
   const currentAsset = currentJob.input_asset_id
     ? await getDocument(request, collectionIds.movieAssets, currentJob.input_asset_id)
@@ -1645,6 +1881,14 @@ const cancelUpload = async ({ req, membership, request }) => {
 
   const b2 = getBackblazeConfig();
   const authorization = await authorizeBackblaze(b2);
+
+  if (largeFileId) {
+    await cancelBackblazeLargeFile({
+      apiUrl: authorization.apiInfo.storageApi.apiUrl,
+      authorizationToken: authorization.authorizationToken,
+      fileId: largeFileId,
+    }).catch(() => null);
+  }
 
   if (currentAsset?.temp_key && !currentAsset.final_key) {
     const tempLocation = parseB2Key(currentAsset.temp_key);
@@ -2113,6 +2357,16 @@ const routeRequest = async ({ req, res, context }) => {
   if (method === "POST" && path === "/uploads/complete") {
     assertCapability(context.capabilities, "uploads.manage");
     return jsonResponse(res, await completeUpload({ ...context, req }));
+  }
+
+  if (method === "POST" && path === "/uploads/large/part") {
+    assertCapability(context.capabilities, "uploads.manage");
+    return jsonResponse(res, await getLargeUploadPartTarget({ ...context, req }));
+  }
+
+  if (method === "POST" && path === "/uploads/large/finish") {
+    assertCapability(context.capabilities, "uploads.manage");
+    return jsonResponse(res, await completeLargeUpload({ ...context, req }));
   }
 
   if (method === "POST" && path === "/uploads/process") {

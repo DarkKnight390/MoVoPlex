@@ -16,13 +16,23 @@ import {
 import { defaultHomepageRowNames, type AdminCapability } from "@/types/admin";
 
 export type AdminUploadTarget = {
+  upload_mode?: "single" | "large";
   upload_url: string;
   authorization_token: string;
   bucket: string;
   temp_key: string;
   object_key: string;
+  large_file_id?: string | null;
+  part_size_bytes?: number | null;
   asset: AppwriteMovieAssetDocument;
   job: AppwriteProcessingJobDocument;
+};
+
+export type AdminLargeUploadPartTarget = {
+  file_id: string;
+  part_number: number;
+  upload_url: string;
+  authorization_token: string;
 };
 
 export type AdminUploadMutationResult = {
@@ -53,6 +63,15 @@ type BackblazeUploadResult = {
 };
 
 type UploadProgressCallback = (progressPercent: number) => void;
+type UploadStateMessageCallback = (message: string) => void;
+
+const hexFromBuffer = (buffer: ArrayBuffer) =>
+  Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+
+const sha1Hex = async (buffer: ArrayBuffer) =>
+  hexFromBuffer(await crypto.subtle.digest("SHA-1", buffer));
 
 const getDatabaseError = () =>
   new Error("Missing Appwrite database configuration for the admin console.");
@@ -162,6 +181,132 @@ export const uploadBrowserFileToBackblaze = async (
     contentSha1:
       String(payload.contentSha1 || payload.content_sha1 || "").trim() || null,
     response: payload,
+  };
+};
+
+const getLargeUploadPartTarget = (payload: Record<string, unknown>) =>
+  executeAdminConsole<AdminLargeUploadPartTarget>(
+    "/uploads/large/part",
+    ExecutionMethod.POST,
+    payload
+  );
+
+const finishLargeUpload = (payload: Record<string, unknown>) =>
+  executeAdminConsole<AdminUploadMutationResult>(
+    "/uploads/large/finish",
+    ExecutionMethod.POST,
+    payload
+  );
+
+export const uploadLargeBrowserFileToBackblaze = async (
+  file: File,
+  target: AdminUploadTarget,
+  onProgress?: UploadProgressCallback,
+  onStateMessage?: UploadStateMessageCallback
+) => {
+  if (!target.large_file_id || !target.part_size_bytes) {
+    throw new Error("Missing Backblaze large-file upload target details.");
+  }
+
+  const totalParts = Math.ceil(file.size / target.part_size_bytes);
+  const partSha1Array: string[] = [];
+
+  for (let partIndex = 0; partIndex < totalParts; partIndex += 1) {
+    const partNumber = partIndex + 1;
+    const start = partIndex * target.part_size_bytes;
+    const end = Math.min(start + target.part_size_bytes, file.size);
+    const chunk = file.slice(start, end);
+    const chunkBuffer = await chunk.arrayBuffer();
+    const chunkSha1 = await sha1Hex(chunkBuffer);
+
+    onStateMessage?.(`Uploading part ${partNumber} of ${totalParts}...`);
+
+    const partTarget = await getLargeUploadPartTarget({
+      file_id: target.large_file_id,
+      part_number: partNumber,
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", partTarget.upload_url);
+      xhr.timeout = 90 * 60 * 1000;
+      xhr.setRequestHeader("Authorization", partTarget.authorization_token);
+      xhr.setRequestHeader("X-Bz-Part-Number", String(partNumber));
+      xhr.setRequestHeader("X-Bz-Content-Sha1", chunkSha1);
+
+      xhr.upload.onprogress = (event) => {
+        if (!onProgress || !event.lengthComputable) {
+          return;
+        }
+
+        const uploadedBytes = start + event.loaded;
+        onProgress(Math.round((uploadedBytes / file.size) * 100));
+      };
+
+      xhr.onerror = () =>
+        reject(
+          new Error(
+            xhr.status === 0
+              ? "Backblaze large-file upload was blocked before completion. This usually means a browser, network, or CORS problem."
+              : `Backblaze large-file upload failed on part ${partNumber} with status ${xhr.status}.`
+          )
+        );
+      xhr.onabort = () => reject(new Error("Backblaze large-file upload was cancelled."));
+      xhr.ontimeout = () =>
+        reject(
+          new Error(
+            `Backblaze large-file upload timed out while sending part ${partNumber} of ${totalParts}.`
+          )
+        );
+      xhr.onload = () => {
+        const rawResponse = xhr.responseText || "";
+        let parsed = null as BackblazeUploadResult | null;
+
+        try {
+          parsed = rawResponse ? (JSON.parse(rawResponse) as BackblazeUploadResult) : null;
+        } catch {
+          parsed = null;
+        }
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+          return;
+        }
+
+        reject(
+          new Error(
+            String(
+              parsed?.message ||
+                parsed?.code ||
+                rawResponse ||
+                `Backblaze large-file upload failed on part ${partNumber}.`
+            )
+          )
+        );
+      };
+
+      xhr.send(chunk);
+    });
+
+    partSha1Array.push(chunkSha1);
+  }
+
+  onProgress?.(100);
+  onStateMessage?.("All parts uploaded. Confirming the large file with the backend...");
+
+  const completion = await finishLargeUpload({
+    asset_id: target.asset.$id,
+    job_id: target.job.$id,
+    large_file_id: target.large_file_id,
+    temp_key: target.temp_key,
+    uploaded_bytes: file.size,
+    content_type: file.type || null,
+    part_sha1_array: partSha1Array,
+  });
+
+  return {
+    completion,
+    partSha1Array,
   };
 };
 

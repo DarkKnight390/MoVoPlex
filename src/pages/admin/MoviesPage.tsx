@@ -8,7 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAdminMovies, useAdminMutation, useCategories, useCreatorProfiles } from "@/hooks/useAdminConsole";
-import { uploadBrowserFileToBackblaze } from "@/lib/adminConsoleApi";
+import {
+  uploadBrowserFileToBackblaze,
+  uploadLargeBrowserFileToBackblaze,
+} from "@/lib/adminConsoleApi";
 import { isTempStoredAsset, resolveStoredAssetUrl } from "@/lib/media";
 import { movieStatuses } from "@/types/admin";
 import { type AssetType, type MovieStatus } from "@/types/admin";
@@ -493,7 +496,12 @@ const MoviesPage = () => {
               language: null,
             });
 
-            let uploadResult;
+            let uploadResult:
+              | {
+                  contentSha1: string | null;
+                  response: Record<string, unknown>;
+                }
+              | undefined;
             try {
               setUploadProgress((current) => ({ ...current, [field]: 0 }));
               setUploadState((current) => ({
@@ -501,20 +509,55 @@ const MoviesPage = () => {
                 [field]: {
                   phase: "uploading",
                   progress: 0,
-                  message: `Uploading ${formatFileSize(file.size)} to secure storage...`,
+                  message:
+                    uploadTarget.upload_mode === "large"
+                      ? `Uploading ${formatFileSize(file.size)} in secure chunks...`
+                      : `Uploading ${formatFileSize(file.size)} to secure storage...`,
                 },
               }));
-              uploadResult = await uploadBrowserFileToBackblaze(file, uploadTarget, (progress) => {
-                setUploadProgress((current) => ({ ...current, [field]: progress }));
-                setUploadState((current) => ({
-                  ...current,
-                  [field]: {
-                    phase: "uploading",
-                    progress,
-                    message: `Uploading ${formatFileSize(file.size)} to secure storage...`,
+              if (uploadTarget.upload_mode === "large") {
+                await uploadLargeBrowserFileToBackblaze(
+                  file,
+                  uploadTarget,
+                  (progress) => {
+                    setUploadProgress((current) => ({ ...current, [field]: progress }));
+                    setUploadState((current) => ({
+                      ...current,
+                      [field]: {
+                        phase: "uploading",
+                        progress,
+                        message: `Uploading ${formatFileSize(file.size)} in secure chunks...`,
+                      },
+                    }));
                   },
-                }));
-              });
+                  (message) => {
+                    setUploadState((current) => ({
+                      ...current,
+                      [field]: {
+                        phase: "uploading",
+                        progress: current[field].progress,
+                        message,
+                      },
+                    }));
+                  }
+                );
+              } else {
+                uploadResult = await uploadBrowserFileToBackblaze(
+                  file,
+                  uploadTarget,
+                  (progress) => {
+                    setUploadProgress((current) => ({ ...current, [field]: progress }));
+                    setUploadState((current) => ({
+                      ...current,
+                      [field]: {
+                        phase: "uploading",
+                        progress,
+                        message: `Uploading ${formatFileSize(file.size)} to secure storage...`,
+                      },
+                    }));
+                  }
+                );
+              }
             } catch (uploadFailure) {
               setUploadState((current) => ({
                 ...current,
@@ -528,7 +571,10 @@ const MoviesPage = () => {
                 },
               }));
               await cancelUpload
-                .mutateAsync({ job_id: uploadTarget.job.$id })
+                .mutateAsync({
+                  job_id: uploadTarget.job.$id,
+                  large_file_id: uploadTarget.large_file_id || null,
+                })
                 .catch(() => null);
               await deleteUpload
                 .mutateAsync({
@@ -539,37 +585,50 @@ const MoviesPage = () => {
               throw uploadFailure;
             }
 
-            setUploadState((current) => ({
-              ...current,
-              [field]: {
-                phase: "confirming",
-                progress: 100,
-                message: "Upload finished. Confirming the file with the backend...",
-              },
-            }));
-            await completeUpload.mutateAsync({
-              asset_id: uploadTarget.asset.$id,
-              job_id: uploadTarget.job.$id,
-              temp_key: uploadTarget.temp_key,
-              uploaded_bytes: file.size,
-              content_type:
-                String(
-                  uploadResult.response?.contentType ||
-                    uploadResult.response?.content_type ||
-                    file.type ||
-                    ""
-                ) || null,
-              content_sha1:
-                String(
-                  uploadResult.response?.contentSha1 ||
-                    uploadResult.response?.content_sha1 ||
-                    uploadResult.contentSha1
-                ) || uploadResult.contentSha1,
-              backblaze_file_id:
-                String(
-                  uploadResult.response?.fileId || uploadResult.response?.file_id || ""
-                ) || null,
-            });
+            if (uploadTarget.upload_mode === "large") {
+              setUploadState((current) => ({
+                ...current,
+                [field]: {
+                  phase: "queued",
+                  progress: 100,
+                  message: "Chunked upload confirmed. Queued for backend processing.",
+                },
+              }));
+            } else {
+              setUploadState((current) => ({
+                ...current,
+                [field]: {
+                  phase: "confirming",
+                  progress: 100,
+                  message: "Upload finished. Confirming the file with the backend...",
+                },
+              }));
+              await completeUpload.mutateAsync({
+                asset_id: uploadTarget.asset.$id,
+                job_id: uploadTarget.job.$id,
+                temp_key: uploadTarget.temp_key,
+                uploaded_bytes: file.size,
+                content_type:
+                  String(
+                    uploadResult?.response?.contentType ||
+                      uploadResult?.response?.content_type ||
+                      file.type ||
+                      ""
+                  ) || null,
+                content_sha1:
+                  String(
+                    uploadResult?.response?.contentSha1 ||
+                      uploadResult?.response?.content_sha1 ||
+                      uploadResult?.contentSha1
+                  ) || uploadResult?.contentSha1,
+                backblaze_file_id:
+                  String(
+                    uploadResult?.response?.fileId ||
+                      uploadResult?.response?.file_id ||
+                      ""
+                  ) || null,
+              });
+            }
             setUploadProgress((current) => ({ ...current, [field]: 100 }));
             setUploadState((current) => ({
               ...current,
