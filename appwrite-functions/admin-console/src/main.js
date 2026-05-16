@@ -109,7 +109,18 @@ const appwriteProjectId =
   process.env.APPWRITE_PROJECT_ID ||
   process.env.VITE_APPWRITE_PROJECT_ID;
 
+const adminLabel =
+  process.env.APPWRITE_ADMIN_LABEL || process.env.VITE_APPWRITE_ADMIN_LABEL || "admin";
+
 const collectionAttributeCache = new Map();
+const publicReadableCollectionIds = new Set();
+
+[
+  collectionIds.movies,
+  collectionIds.categories,
+  collectionIds.homepageRows,
+  collectionIds.homepageRowItems,
+].forEach((collectionId) => publicReadableCollectionIds.add(collectionId));
 
 const normalizeEndpoint = (value) => value?.replace(/\/+$/, "") || "";
 const jsonResponse = (res, body, status = 200) => res.json(body, status);
@@ -288,25 +299,37 @@ const filterDocumentData = async (request, collectionId, data) => {
   return filtered;
 };
 
+const getDocumentPermissions = (collectionId) => {
+  if (!publicReadableCollectionIds.has(collectionId)) {
+    return undefined;
+  }
+
+  return [`read("users")`, `read("label:${adminLabel}")`];
+};
+
 const createDocument = async (request, collectionId, data, documentId = "unique()") => {
   const filtered = await filterDocumentData(request, collectionId, data);
+  const permissions = getDocumentPermissions(collectionId);
   return request(
     "POST",
     `/databases/${databaseId}/collections/${collectionId}/documents`,
     {
       documentId,
       data: filtered,
+      ...(permissions ? { permissions } : {}),
     }
   );
 };
 
 const updateDocument = async (request, collectionId, documentId, data) => {
   const filtered = await filterDocumentData(request, collectionId, data);
+  const permissions = getDocumentPermissions(collectionId);
   return request(
     "PATCH",
     `/databases/${databaseId}/collections/${collectionId}/documents/${documentId}`,
     {
       data: filtered,
+      ...(permissions ? { permissions } : {}),
     }
   );
 };

@@ -9,11 +9,23 @@ export const useHomepageContent = () => {
     queries: [
       {
         queryKey: ["homepage", "rows"],
-        queryFn: adminConsoleApi.listHomepageRows,
+        queryFn: async () => {
+          try {
+            return await adminConsoleApi.listHomepageRows();
+          } catch {
+            return [];
+          }
+        },
       },
       {
         queryKey: ["homepage", "rowItems"],
-        queryFn: adminConsoleApi.listHomepageRowItems,
+        queryFn: async () => {
+          try {
+            return await adminConsoleApi.listHomepageRowItems();
+          } catch {
+            return [];
+          }
+        },
       },
     ],
   });
