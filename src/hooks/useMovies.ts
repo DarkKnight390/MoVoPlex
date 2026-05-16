@@ -7,20 +7,31 @@ import {
 } from "@/integrations/appwrite/client";
 import { AppwriteMovieDocument } from "@/integrations/appwrite/types";
 import { Movie } from "@/types/movie";
-import { isTempStoredAsset, resolveStoredAssetUrl } from "@/lib/media";
+import { adminConsoleApi } from "@/lib/adminConsoleApi";
+import { isB2StoredAsset, isTempStoredAsset, resolveStoredAssetUrl } from "@/lib/media";
 
-const mapMovieDocument = (movie: AppwriteMovieDocument): Movie => ({
+type SignedUrlMap = Record<string, string>;
+
+const resolveMovieAssetUrl = (value?: string | null, signedUrls?: SignedUrlMap) => {
+  if (!value) {
+    return "";
+  }
+
+  return signedUrls?.[value] || resolveStoredAssetUrl(value);
+};
+
+const mapMovieDocument = (movie: AppwriteMovieDocument, signedUrls?: SignedUrlMap): Movie => ({
   id: movie.$id,
   title: movie.title,
-  poster: resolveStoredAssetUrl(movie.poster),
-  backdrop: resolveStoredAssetUrl(movie.backdrop),
+  poster: resolveMovieAssetUrl(movie.poster, signedUrls),
+  backdrop: resolveMovieAssetUrl(movie.backdrop, signedUrls),
   description: movie.description,
   rating: movie.rating,
   year: movie.year,
   genre: movie.genre,
   duration: movie.duration,
-  banner: movie.banner ? resolveStoredAssetUrl(movie.banner) : undefined,
-  trailer: movie.trailer ? resolveStoredAssetUrl(movie.trailer) : undefined,
+  banner: movie.banner ? resolveMovieAssetUrl(movie.banner, signedUrls) : undefined,
+  trailer: movie.trailer ? resolveMovieAssetUrl(movie.trailer, signedUrls) : undefined,
   cast: movie.cast || undefined,
   director: movie.director || undefined,
   language: movie.language || undefined,
@@ -38,7 +49,7 @@ const mapMovieDocument = (movie: AppwriteMovieDocument): Movie => ({
   category_ids: movie.category_ids || [],
   rejection_reason_code: movie.rejection_reason_code || undefined,
   rejection_reason_note: movie.rejection_reason_note || undefined,
-  video_url: movie.video_url ? resolveStoredAssetUrl(movie.video_url) : undefined,
+  video_url: movie.video_url ? resolveMovieAssetUrl(movie.video_url, signedUrls) : undefined,
 });
 
 const getMoviesCollectionError = () =>
@@ -57,6 +68,36 @@ const isPubliclyPlayableMovie = (movie: AppwriteMovieDocument) =>
   !isTempStoredAsset(movie.poster) &&
   !isTempStoredAsset(movie.video_url);
 
+const collectPrivateAssetRefs = (movies: AppwriteMovieDocument[]) => {
+  const refs = new Set<string>();
+
+  movies.forEach((movie) => {
+    [movie.poster, movie.backdrop, movie.banner, movie.trailer, movie.video_url].forEach((value) => {
+      if (value && isB2StoredAsset(value) && !isTempStoredAsset(value)) {
+        refs.add(value);
+      }
+    });
+  });
+
+  return Array.from(refs);
+};
+
+const resolveSignedMovieAssets = async (movies: AppwriteMovieDocument[]) => {
+  const refs = collectPrivateAssetRefs(movies);
+
+  if (!refs.length) {
+    return {} as SignedUrlMap;
+  }
+
+  try {
+    const response = await adminConsoleApi.resolveMediaUrls(refs);
+    return response?.urls || {};
+  } catch (error) {
+    console.warn("Falling back to unsigned media URLs.", error);
+    return {} as SignedUrlMap;
+  }
+};
+
 export const useMovies = () =>
   useQuery({
     queryKey: ["movies"],
@@ -72,10 +113,12 @@ export const useMovies = () =>
           [Query.orderDesc("$updatedAt")]
         );
 
-        return response.documents
+        const movies = response.documents
           .map((movie) => movie as AppwriteMovieDocument)
-          .filter(isPubliclyPlayableMovie)
-          .map(mapMovieDocument);
+          .filter(isPubliclyPlayableMovie);
+        const signedUrls = await resolveSignedMovieAssets(movies);
+
+        return movies.map((movie) => mapMovieDocument(movie, signedUrls));
       } catch (error) {
         console.warn("Falling back to an empty published-movies state.", error);
         return [];
@@ -102,7 +145,13 @@ export const useMovie = (id?: string) =>
           id
         )) as AppwriteMovieDocument;
 
-        return isPubliclyPlayableMovie(movie) ? mapMovieDocument(movie) : null;
+        if (!isPubliclyPlayableMovie(movie)) {
+          return null;
+        }
+
+        const signedUrls = await resolveSignedMovieAssets([movie]);
+
+        return mapMovieDocument(movie, signedUrls);
       } catch (error) {
         console.warn(`Published movie ${id} could not be loaded.`, error);
         return null;

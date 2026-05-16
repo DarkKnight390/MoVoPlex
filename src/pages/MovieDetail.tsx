@@ -4,12 +4,14 @@ import { Play, Star, Clock, Calendar, ArrowLeft } from "lucide-react";
 import Header from "@/components/Header";
 import { useMovie } from "@/hooks/useMovies";
 import { useState } from "react";
+import { getYouTubeEmbedUrl } from "@/lib/media";
 
 const MovieDetail = () => {
   const { id } = useParams();
   const [searchQuery, setSearchQuery] = useState("");
   
   const { data: movie, isLoading, error } = useMovie(id);
+  const trailerEmbedUrl = movie?.trailer ? getYouTubeEmbedUrl(movie.trailer) : null;
   
   if (isLoading) {
     return (
@@ -98,6 +100,37 @@ const MovieDetail = () => {
             </div>
           </div>
         </div>
+
+        {movie.trailer ? (
+          <div className="px-4 pb-16 md:px-8">
+            <div className="mx-auto max-w-6xl">
+              <h2 className="mb-4 text-2xl font-semibold text-white">Trailer</h2>
+              <div className="overflow-hidden rounded-2xl border border-gray-800 bg-gray-950">
+                <div className="aspect-video bg-black">
+                  {trailerEmbedUrl ? (
+                    <iframe
+                      src={trailerEmbedUrl}
+                      title={`${movie.title} trailer`}
+                      className="h-full w-full"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <video
+                      src={movie.trailer}
+                      poster={movie.poster}
+                      className="h-full w-full"
+                      controls
+                    >
+                      Your browser does not support HTML5 video playback.
+                    </video>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

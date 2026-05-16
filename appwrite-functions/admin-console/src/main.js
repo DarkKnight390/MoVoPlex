@@ -354,15 +354,21 @@ const listDocuments = async (request, collectionId) => {
   return response.documents || [];
 };
 
-const getFunctionContext = async (req) => {
-  const request = createAppwriteRequest(req);
+const getSignedInUserId = (req) => {
   const userId = getHeader(req.headers, "x-appwrite-user-id");
 
   if (!userId) {
-    const error = new Error("You must be signed in to use the admin console.");
+    const error = new Error("You must be signed in to access this media.");
     error.statusCode = APPWRITE_UNAUTHORIZED;
     throw error;
   }
+
+  return userId;
+};
+
+const getFunctionContext = async (req) => {
+  const request = createAppwriteRequest(req);
+  const userId = getSignedInUserId(req);
 
   let membership;
 
@@ -643,6 +649,54 @@ const listBackblazeFileVersions = async ({
 
   return payload.files || [];
 };
+
+const getBackblazeDownloadAuthorization = async ({
+  apiUrl,
+  authorizationToken,
+  bucketId,
+  fileNamePrefix,
+  validDurationInSeconds,
+}) => {
+  const response = await fetch(`${apiUrl}/b2api/v4/b2_get_download_authorization`, {
+    method: "POST",
+    headers: {
+      Authorization: authorizationToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      bucketId,
+      fileNamePrefix,
+      validDurationInSeconds,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.message || "Backblaze download authorization failed.");
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+};
+
+const encodeBackblazeObjectKey = (value) =>
+  String(value || "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+const buildSignedBackblazeDownloadUrl = ({
+  downloadUrl,
+  bucketName,
+  objectKey,
+  authorizationToken,
+}) =>
+  `${downloadUrl}/file/${encodeURIComponent(bucketName)}/${encodeBackblazeObjectKey(
+    objectKey
+  )}?Authorization=${encodeURIComponent(authorizationToken)}`;
 
 const parseB2Key = (value) => {
   const normalized = String(value || "");
@@ -1914,6 +1968,93 @@ const updateHomepage = async ({ req, membership, request }) => {
   return { success: true };
 };
 
+const signMediaUrls = async ({ req }) => {
+  getSignedInUserId(req);
+
+  const body = parseBody(req);
+  const refs = Array.from(
+    new Set(
+      []
+        .concat(body.refs || [])
+        .map((value) => toNullableString(value))
+        .filter(Boolean)
+    )
+  );
+
+  if (!refs.length) {
+    return {
+      success: true,
+      urls: {},
+      expires_in_seconds: 0,
+    };
+  }
+
+  const b2 = getBackblazeConfig();
+  const authorization = await authorizeBackblaze(b2);
+  const downloadUrl =
+    authorization?.apiInfo?.storageApi?.downloadUrl || authorization?.downloadUrl || null;
+
+  if (!downloadUrl) {
+    const error = new Error("Backblaze download URL is missing from the authorization response.");
+    error.statusCode = APPWRITE_INTERNAL_ERROR;
+    throw error;
+  }
+
+  const validDurationInSeconds = Math.max(
+    60,
+    Number(process.env.BACKBLAZE_SIGNED_URL_TTL_SECONDS || 3600)
+  );
+  const resolvedBucketIds = new Map();
+  const urls = {};
+  const errors = {};
+
+  for (const ref of refs) {
+    const parsed = parseB2Key(ref);
+
+    if (!parsed || parsed.bucketName === b2.tempBucketName) {
+      continue;
+    }
+
+    try {
+      let bucketId = resolvedBucketIds.get(parsed.bucketName);
+
+      if (!bucketId) {
+        bucketId = await resolveBucketId({
+          authorization,
+          config: b2,
+          bucketName: parsed.bucketName,
+          bucketId: null,
+        });
+        resolvedBucketIds.set(parsed.bucketName, bucketId);
+      }
+
+      const downloadAuthorization = await getBackblazeDownloadAuthorization({
+        apiUrl: authorization.apiInfo.storageApi.apiUrl,
+        authorizationToken: authorization.authorizationToken,
+        bucketId,
+        fileNamePrefix: parsed.objectKey,
+        validDurationInSeconds,
+      });
+
+      urls[ref] = buildSignedBackblazeDownloadUrl({
+        downloadUrl,
+        bucketName: parsed.bucketName,
+        objectKey: parsed.objectKey,
+        authorizationToken: downloadAuthorization.authorizationToken,
+      });
+    } catch (caughtError) {
+      errors[ref] = caughtError?.message || "Signed media resolution failed.";
+    }
+  }
+
+  return {
+    success: true,
+    urls,
+    errors,
+    expires_in_seconds: validDurationInSeconds,
+  };
+};
+
 const routeRequest = async ({ req, res, context }) => {
   const method = req.method?.toUpperCase?.() || "GET";
   const path = getPath(req);
@@ -2002,6 +2143,13 @@ const routeRequest = async ({ req, res, context }) => {
 
 export default async ({ req, res, log, error }) => {
   try {
+    const method = req.method?.toUpperCase?.() || "GET";
+    const path = getPath(req);
+
+    if (method === "POST" && path === "/media/sign") {
+      return jsonResponse(res, await signMediaUrls({ req, log }));
+    }
+
     const context = await getFunctionContext(req);
     return await routeRequest({ req, res, context, log });
   } catch (caughtError) {

@@ -38,6 +38,12 @@ export type AdminUploadMutationResult = {
   job?: AppwriteProcessingJobDocument;
 };
 
+export type SignedMediaResolutionResult = {
+  success: boolean;
+  urls: Record<string, string>;
+  expires_in_seconds?: number;
+};
+
 type BackblazeUploadResult = {
   fileId?: string;
   fileName?: string;
@@ -415,6 +421,13 @@ export const adminConsoleApi = {
       "/uploads/delete",
       ExecutionMethod.POST,
       payload
+    );
+  },
+  resolveMediaUrls(refs: string[]) {
+    return executeAdminConsole<SignedMediaResolutionResult>(
+      "/media/sign",
+      ExecutionMethod.POST,
+      { refs }
     );
   },
   updateHomepage(payload: Record<string, unknown>) {

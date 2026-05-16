@@ -47,6 +47,9 @@ export const resolveStoredAssetUrl = (value?: string | null) => {
   return `${baseUrl.replace(/\/+$/, "")}/${trimSlashes(value)}`;
 };
 
+export const isB2StoredAsset = (value?: string | null) =>
+  Boolean(value && B2_URL_PATTERN.test(value));
+
 export const isTempStoredAsset = (value?: string | null) =>
   Boolean(value && value.startsWith(`b2://${TEMP_PROCESSING_BUCKET}/`));
 

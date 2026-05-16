@@ -17,6 +17,7 @@ Implemented routes today:
 - `POST /uploads/process`
 - `POST /uploads/cancel`
 - `POST /uploads/delete`
+- `POST /media/sign`
 
 The frontend now uses this function for both admin mutations and upload orchestration.
 
@@ -58,6 +59,7 @@ BACKBLAZE_VIDEOS_BUCKET_NAME=movoplex-videos
 BACKBLAZE_TRAILERS_BUCKET_NAME=movoplex-trailers
 BACKBLAZE_THUMBNAILS_BUCKET_NAME=movoplex-thumbnails
 BACKBLAZE_SUBTITLES_BUCKET_NAME=movoplex-subtitles
+BACKBLAZE_SIGNED_URL_TTL_SECONDS=3600
 ```
 
 Appwrite injects the runtime auth values used by the function automatically:
@@ -87,5 +89,6 @@ This function now covers the routes used by the current admin console screens:
 - homepage hero + row ordering
 - upload begin / complete / process / cancel
 - upload record cleanup / delete
+- signed media URL resolution for private Backblaze buckets
 
 It also filters writes to attributes that actually exist in the live Appwrite collections, which helps when your remote project has schema drift or hit Appwrite's attribute limit during earlier bootstraps.
