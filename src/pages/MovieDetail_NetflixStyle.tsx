@@ -30,7 +30,8 @@ const MovieDetail = () => {
     movie?.trailerUrl ||
     movie?.trailer_url ||
     movie?.previewUrl ||
-    movie?.preview_url;
+    movie?.preview_url ||
+    movie?.trailer;
   const movieGenres = formatGenreTokens(movie?.genre);
 
   const relatedMovies = useMemo(() => {
