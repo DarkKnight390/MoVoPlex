@@ -18,7 +18,7 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import { useMovie, useMovies } from "@/hooks/useMovies";
-import { getYouTubeEmbedUrl } from "@/lib/media";
+import { getYouTubeEmbedUrl, resolveStoredAssetUrl } from "@/lib/media";
 
 type PlaybackState = "idle" | "loading" | "ready" | "buffering" | "error";
 
@@ -32,12 +32,19 @@ const WatchMovie = () => {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [showControls, setShowControls] = useState(true);
+  const [playbackErrorMessage, setPlaybackErrorMessage] = useState("");
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: movie, isLoading, error } = useMovie(id);
   const { data: movies = [] } = useMovies();
 
-  const embedUrl = movie?.video_url ? getYouTubeEmbedUrl(movie.video_url) : null;
+  const videoSource = movie?.video_url ? resolveStoredAssetUrl(movie.video_url) : "";
+  const embedUrl = videoSource ? getYouTubeEmbedUrl(videoSource) : null;
+  const videoMimeType = videoSource.toLowerCase().includes(".webm")
+    ? "video/webm"
+    : videoSource.toLowerCase().includes(".mov")
+      ? "video/quicktime"
+      : "video/mp4";
   const upNext = useMemo(() => {
     if (!movie) {
       return [];
@@ -105,6 +112,26 @@ const WatchMovie = () => {
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     setDuration(e.currentTarget.duration);
     setPlaybackState("ready");
+    setPlaybackErrorMessage("");
+  };
+
+  const handlePlaybackError = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const mediaError = e.currentTarget.error;
+    const codeLabels: Record<number, string> = {
+      1: "MEDIA_ERR_ABORTED",
+      2: "MEDIA_ERR_NETWORK",
+      3: "MEDIA_ERR_DECODE",
+      4: "MEDIA_ERR_SRC_NOT_SUPPORTED",
+    };
+    const message =
+      mediaError?.code
+        ? `${codeLabels[mediaError.code] || "MEDIA_ERR_UNKNOWN"} (${mediaError.code})${
+            mediaError.message ? `: ${mediaError.message}` : ""
+          }`
+        : "The browser could not load this video source.";
+
+    setPlaybackErrorMessage(message);
+    setPlaybackState("error");
   };
 
   const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -216,11 +243,11 @@ const WatchMovie = () => {
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
           />
-        ) : movie.video_url ? (
+        ) : videoSource ? (
           <>
             <video
+              key={videoSource}
               ref={videoRef}
-              src={movie.video_url}
               poster={movie.backdrop || movie.poster}
               className="w-full h-full object-contain"
               preload="metadata"
@@ -234,10 +261,11 @@ const WatchMovie = () => {
               onPause={() => setIsPlaying(false)}
               onWaiting={() => setPlaybackState("buffering")}
               onStalled={() => setPlaybackState("buffering")}
-              onError={() => setPlaybackState("error")}
+              onError={handlePlaybackError}
               onTimeUpdate={handleTimeUpdate}
               onEnded={() => setIsPlaying(false)}
             >
+              <source src={videoSource} type={videoMimeType} />
               Your browser does not support HTML5 video playback.
             </video>
 
@@ -386,8 +414,11 @@ const WatchMovie = () => {
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Playback Error</h2>
             <p className="text-gray-300 mb-4">
-              There was a problem playing this video. Please try again.
+              {playbackErrorMessage || "There was a problem playing this video. Please try again."}
             </p>
+            {videoSource ? (
+              <p className="mb-4 break-all text-xs text-gray-500">{videoSource}</p>
+            ) : null}
             <button
               onClick={() => {
                 if (videoRef.current) {
