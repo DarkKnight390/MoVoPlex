@@ -7,7 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
-import MovieDetail from "./pages/MovieDetail";
+import MovieDetail from "./pages/MovieDetail_NetflixStyle";
 import WatchMovie from "./pages/WatchMovie";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";

@@ -159,6 +159,37 @@ const UploadsPage = () => {
     }
   };
 
+  const handleClearStaleRecord = async (assetId: string, jobId?: string | null) => {
+    try {
+      if (jobId) {
+        const cancelResult = await cancelUpload.mutateAsync({ job_id: jobId });
+        if (!cancelResult?.success) {
+          throw new Error(cancelResult?.message || "Stale upload cancellation did not complete successfully.");
+        }
+        if (cancelResult.asset?.$id) {
+          setAssetOverrides((current) => ({
+            ...current,
+            [cancelResult.asset!.$id]: {
+              ...(current[cancelResult.asset!.$id] || {}),
+              processing_status: cancelResult.asset?.processing_status,
+              final_key: cancelResult.asset?.final_key || null,
+            },
+          }));
+        }
+        if (cancelResult.job?.$id) {
+          setJobOverrides((current) => ({
+            ...current,
+            [cancelResult.job!.$id]: cancelResult.job?.status || "cancelled",
+          }));
+        }
+      }
+
+      await handleDeleteRecord(assetId, jobId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Stale upload cleanup failed.");
+    }
+  };
+
   return (
     <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
       <Card className="border-gray-800 bg-gray-950 text-white">
@@ -216,10 +247,21 @@ const UploadsPage = () => {
           </CardHeader>
           <CardContent className="space-y-3">
             {assetsWithJobs.map(({ asset, job }) => {
+              const hasReplacementFinalizedAsset = assetsWithJobs.some(
+                ({ asset: candidate }) =>
+                  candidate.$id !== asset.$id &&
+                  candidate.movie_id === asset.movie_id &&
+                  candidate.asset_type === asset.asset_type &&
+                  Boolean(candidate.final_key)
+              );
+              const isStalePendingRow =
+                asset.processing_status === "pending" &&
+                (job?.status === "queued" || job?.status === "running") &&
+                hasReplacementFinalizedAsset;
               const canFinalize =
                 Boolean(job?.$id) &&
                 !asset.final_key &&
-                ["pending", "uploaded", "processing", "failed"].includes(asset.processing_status) &&
+                ["uploaded", "processing", "failed"].includes(asset.processing_status) &&
                 job?.status !== "cancelled";
               const canCancel =
                 Boolean(job?.$id) &&
@@ -260,6 +302,12 @@ const UploadsPage = () => {
                       it from the Movies page.
                     </p>
                   ) : null}
+                  {isStalePendingRow ? (
+                    <p className="text-xs text-amber-300">
+                      A newer finalized {asset.asset_type.replace(/_/g, " ")} already exists for this
+                      movie. This row is stale and can be cleared safely.
+                    </p>
+                  ) : null}
                   {job ? (
                     <p className="text-xs text-gray-500">Job ID: {job.$id}</p>
                   ) : null}
@@ -295,6 +343,17 @@ const UploadsPage = () => {
                         disabled={deleteUpload.isPending}
                       >
                         Delete record
+                      </Button>
+                    ) : null}
+                    {isStalePendingRow ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-amber-500/40 bg-transparent text-amber-200 hover:bg-amber-500/10"
+                        onClick={() => handleClearStaleRecord(asset.$id, job?.$id)}
+                        disabled={cancelUpload.isPending || deleteUpload.isPending}
+                      >
+                        Clear stale record
                       </Button>
                     ) : null}
                   </div>
