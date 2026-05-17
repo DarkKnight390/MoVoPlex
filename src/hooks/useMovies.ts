@@ -32,6 +32,10 @@ const mapMovieDocument = (movie: AppwriteMovieDocument, signedUrls?: SignedUrlMa
   duration: movie.duration,
   banner: movie.banner ? resolveMovieAssetUrl(movie.banner, signedUrls) : undefined,
   trailer: movie.trailer ? resolveMovieAssetUrl(movie.trailer, signedUrls) : undefined,
+  trailerUrl: movie.trailerUrl ? resolveMovieAssetUrl(movie.trailerUrl, signedUrls) : undefined,
+  trailer_url: movie.trailer_url ? resolveMovieAssetUrl(movie.trailer_url, signedUrls) : undefined,
+  previewUrl: movie.previewUrl ? resolveMovieAssetUrl(movie.previewUrl, signedUrls) : undefined,
+  preview_url: movie.preview_url ? resolveMovieAssetUrl(movie.preview_url, signedUrls) : undefined,
   cast: movie.cast || undefined,
   director: movie.director || undefined,
   language: movie.language || undefined,
@@ -72,7 +76,17 @@ const collectPrivateAssetRefs = (movies: AppwriteMovieDocument[]) => {
   const refs = new Set<string>();
 
   movies.forEach((movie) => {
-    [movie.poster, movie.backdrop, movie.banner, movie.trailer, movie.video_url].forEach((value) => {
+    [
+      movie.poster,
+      movie.backdrop,
+      movie.banner,
+      movie.trailer,
+      movie.trailerUrl,
+      movie.trailer_url,
+      movie.previewUrl,
+      movie.preview_url,
+      movie.video_url,
+    ].forEach((value) => {
       if (value && isB2StoredAsset(value) && !isTempStoredAsset(value)) {
         refs.add(value);
       }

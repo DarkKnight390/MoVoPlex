@@ -27,6 +27,10 @@ export type AppwriteMovieDocument = Models.Document & {
   duration: string;
   banner?: string | null;
   trailer?: string | null;
+  trailerUrl?: string | null;
+  trailer_url?: string | null;
+  previewUrl?: string | null;
+  preview_url?: string | null;
   cast?: string | null;
   director?: string | null;
   language?: string | null;

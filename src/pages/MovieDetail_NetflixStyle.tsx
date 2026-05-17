@@ -11,31 +11,6 @@ import {
   X,
 } from "lucide-react";
 import { useMovie, useMovies } from "@/hooks/useMovies";
-import { getYouTubeEmbedUrl } from "@/lib/media";
-
-const parseNames = (value?: string) =>
-  value
-    ?.split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean) || [];
-
-const getYouTubePreviewUrl = (embedUrl?: string | null, muted = true) => {
-  if (!embedUrl) {
-    return null;
-  }
-
-  try {
-    const parsedUrl = new URL(embedUrl);
-    const videoId = parsedUrl.pathname.split("/").filter(Boolean).pop();
-    const muteValue = muted ? "1" : "0";
-
-    return videoId
-      ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${muteValue}&controls=0&loop=1&playlist=${videoId}&modestbranding=1&rel=0&playsinline=1`
-      : embedUrl;
-  } catch {
-    return embedUrl;
-  }
-};
 
 const formatGenreTokens = (genre?: string) =>
   genre
@@ -45,19 +20,17 @@ const formatGenreTokens = (genre?: string) =>
 
 const MovieDetail = () => {
   const { id } = useParams();
-  const [heroPreviewMuted, setHeroPreviewMuted] = useState(true);
+  const [isMuted, setIsMuted] = useState(true);
 
   const { data: movie, isLoading, error } = useMovie(id);
   const { data: allMovies = [] } = useMovies();
 
-  const trailerEmbedUrl = movie?.trailer ? getYouTubeEmbedUrl(movie.trailer) : null;
-  const trailerIsYoutube = Boolean(trailerEmbedUrl);
-  const heroTrailerEmbedUrl = useMemo(
-    () => getYouTubePreviewUrl(trailerEmbedUrl, heroPreviewMuted),
-    [trailerEmbedUrl, heroPreviewMuted]
-  );
-
   const heroMediaImage = movie?.banner || movie?.backdrop || movie?.poster;
+  const trailerUrl =
+    movie?.trailerUrl ||
+    movie?.trailer_url ||
+    movie?.previewUrl ||
+    movie?.preview_url;
   const movieGenres = formatGenreTokens(movie?.genre);
 
   const relatedMovies = useMemo(() => {
@@ -122,29 +95,15 @@ const MovieDetail = () => {
       <div className="relative z-10 flex min-h-screen justify-center px-3 py-6 md:px-8 md:py-10">
         <article className="w-full max-w-[1180px] overflow-hidden rounded-md bg-[#141414] shadow-[0_0_90px_rgba(0,0,0,0.95)] md:w-[78vw]">
           <section className="relative h-[58vw] min-h-[360px] max-h-[665px] overflow-hidden bg-black md:h-[46vw]">
-            {movie.trailer ? (
-              trailerIsYoutube ? (
-                <iframe
-                  key={heroTrailerEmbedUrl}
-                  src={heroTrailerEmbedUrl || undefined}
-                  title={`${movie.title} preview`}
-                  className="absolute inset-0 h-full w-full scale-110"
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              ) : (
-                <video
-                  src={movie.trailer}
-                  poster={heroMediaImage}
-                  className="absolute inset-0 h-full w-full object-cover"
-                  autoPlay
-                  muted={heroPreviewMuted}
-                  loop
-                  playsInline
-                  preload="metadata"
-                />
-              )
+            {trailerUrl ? (
+              <video
+                src={trailerUrl}
+                autoPlay
+                muted={isMuted}
+                loop
+                playsInline
+                className="absolute inset-0 h-full w-full object-cover"
+              />
             ) : heroMediaImage ? (
               <img
                 src={heroMediaImage}
@@ -164,14 +123,14 @@ const MovieDetail = () => {
               <X className="h-5 w-5" />
             </Link>
 
-            {movie.trailer ? (
+            {trailerUrl ? (
               <button
                 type="button"
-                aria-label={heroPreviewMuted ? "Unmute preview" : "Mute preview"}
-                onClick={() => setHeroPreviewMuted((current) => !current)}
+                aria-label={isMuted ? "Unmute preview" : "Mute preview"}
+                onClick={() => setIsMuted((current) => !current)}
                 className="absolute bottom-[18%] right-6 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/50 bg-black/30 text-white transition-colors hover:border-white hover:bg-black/60"
               >
-                {heroPreviewMuted ? (
+                {isMuted ? (
                   <VolumeX className="h-5 w-5" />
                 ) : (
                   <Volume2 className="h-5 w-5" />

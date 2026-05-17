@@ -14,6 +14,10 @@ export interface Movie {
   video_url?: string;
   banner?: string;
   trailer?: string;
+  trailerUrl?: string;
+  trailer_url?: string;
+  previewUrl?: string;
+  preview_url?: string;
   cast?: string;
   director?: string;
   language?: string;
