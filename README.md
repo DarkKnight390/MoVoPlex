@@ -3,7 +3,7 @@
 MoVoPlex is a Vite + React + TypeScript streaming frontend with:
 
 - Appwrite for auth, admin data, and workflow state
-- Backblaze B2 for media delivery
+- Cloudflare R2 (S3-compatible API) for media delivery
 - React Query for client data access
 - Tailwind CSS and shadcn/ui for the UI
 
@@ -33,7 +33,7 @@ npm install
 
 2. Copy `.env.example` to `.env.local`.
 
-3. Fill in your Appwrite public values, Backblaze public base URLs, and the server-only bootstrap values you intend to use locally.
+3. Fill in your Appwrite public values, R2 public base URLs, and the server-only bootstrap values you intend to use locally.
 
 4. Start the app:
 
@@ -120,16 +120,22 @@ APPWRITE_ADMIN_PASSWORD=
 APPWRITE_ADMIN_ROLE=super_admin
 APPWRITE_ADMIN_LABEL=admin
 
-VITE_BACKBLAZE_PUBLIC_BASE_URL=
-VITE_B2_VIDEOS_BASE_URL=
-VITE_B2_THUMBNAILS_BASE_URL=
-VITE_B2_TRAILERS_BASE_URL=
-VITE_B2_PROFILE_ASSETS_BASE_URL=
-VITE_B2_TEMP_PROCESSING_BASE_URL=
-VITE_B2_SUBTITLES_BASE_URL=
-VITE_B2_REPORTS_LOGS_BASE_URL=
-VITE_B2_ORIGINALS_BASE_URL=
-VITE_B2_DOWNLOADS_BASE_URL=
+STORAGE_PROVIDER=r2
+VITE_STORAGE_PROVIDER=r2
+VITE_R2_PUBLIC_BASE_URL=
+VITE_R2_VIDEOS_BASE_URL=
+VITE_R2_THUMBNAILS_BASE_URL=
+VITE_R2_TRAILERS_BASE_URL=
+VITE_R2_PROFILE_ASSETS_BASE_URL=
+VITE_R2_TEMP_PROCESSING_BASE_URL=
+VITE_R2_SUBTITLES_BASE_URL=
+VITE_R2_REPORTS_LOGS_BASE_URL=
+VITE_R2_ORIGINALS_BASE_URL=
+VITE_R2_DOWNLOADS_BASE_URL=
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_S3_ENDPOINT=
 ```
 
 ## Admin function contract
@@ -167,9 +173,9 @@ Full streaming is no longer treated as universally open.
 
 Until Stripe lands, subscription status can be managed manually through Appwrite data and the upcoming subscription admin module.
 
-## Backblaze bucket architecture
+## Cloudflare R2 bucket architecture
 
-The app resolves `b2://bucket/key` paths against these buckets:
+The app stores and resolves `r2://bucket/key` paths against these buckets:
 
 - `movoplex-videos`
 - `movoplex-thumbnails`
@@ -183,15 +189,17 @@ The app resolves `b2://bucket/key` paths against these buckets:
 
 Recommended examples:
 
-- `poster`: `b2://movoplex-thumbnails/movies/big-buck-bunny/poster.jpg`
-- `banner`: `b2://movoplex-thumbnails/movies/big-buck-bunny/banner.jpg`
-- `trailer`: `b2://movoplex-trailers/movies/big-buck-bunny/trailer.mp4`
-- `video_url`: `b2://movoplex-videos/movies/big-buck-bunny/master.mp4`
+- `poster`: `r2://movoplex-thumbnails/movies/big-buck-bunny/poster.jpg`
+- `banner`: `r2://movoplex-thumbnails/movies/big-buck-bunny/banner.jpg`
+- `trailer`: `r2://movoplex-trailers/movies/big-buck-bunny/trailer.mp4`
+- `video_url`: `r2://movoplex-videos/movies/big-buck-bunny/master.mp4`
+
+Legacy `b2://` refs are still signed when Backblaze credentials are configured.
 
 ## Security note
 
-Do not place Appwrite API keys or Backblaze secret keys in Vite client env vars.
+Do not place Appwrite API keys or R2 secret keys in Vite client env vars.
 
 - browser code should only receive public Appwrite config and public media URLs
-- Backblaze `keyID` and `applicationKey` must remain server-side
+- R2 `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` must remain server-side
 - admin writes should stay function-backed so audit logging and permission checks are mandatory

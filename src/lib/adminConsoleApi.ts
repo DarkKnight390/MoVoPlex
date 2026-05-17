@@ -14,16 +14,19 @@ import {
   type AppwriteSubscriberProfileDocument,
 } from "@/integrations/appwrite/types";
 import { defaultHomepageRowNames, type AdminCapability } from "@/types/admin";
+import { getStorageProvider } from "@/lib/media";
 
 export type AdminUploadTarget = {
+  storage_provider?: "backblaze" | "r2";
   upload_mode?: "single" | "large";
   upload_url: string;
-  authorization_token: string;
+  authorization_token?: string | null;
   bucket: string;
   temp_key: string;
   object_key: string;
   large_file_id?: string | null;
   part_size_bytes?: number | null;
+  multipart_upload_id?: string | null;
   asset: AppwriteMovieAssetDocument;
   job: AppwriteProcessingJobDocument;
 };
@@ -32,7 +35,7 @@ export type AdminLargeUploadPartTarget = {
   file_id: string;
   part_number: number;
   upload_url: string;
-  authorization_token: string;
+  authorization_token?: string | null;
 };
 
 export type AdminUploadMutationResult = {
@@ -54,7 +57,7 @@ export type SignedMediaResolutionResult = {
   expires_in_seconds?: number;
 };
 
-type BackblazeUploadResult = {
+type StorageUploadResult = {
   fileId?: string;
   fileName?: string;
   contentSha1?: string;
@@ -112,21 +115,34 @@ const executeAdminConsole = async <TResult>(
   return JSON.parse(responseText) as TResult;
 };
 
-export const uploadBrowserFileToBackblaze = async (
+const resolveUploadProvider = (target: AdminUploadTarget) => {
+  const provider = (target.storage_provider || getStorageProvider()).toLowerCase();
+  return provider === "r2" ? "r2" : "backblaze";
+};
+
+export const uploadBrowserFileToStorage = async (
   file: File,
   target: AdminUploadTarget,
   onProgress?: UploadProgressCallback
 ) => {
+  const provider = resolveUploadProvider(target);
   const uploadContentType =
-    file.type && !file.type.startsWith("video/") ? file.type : "b2/x-auto";
-  const payload = await new Promise<BackblazeUploadResult>((resolve, reject) => {
+    provider === "r2"
+      ? file.type || "application/octet-stream"
+      : file.type && !file.type.startsWith("video/")
+        ? file.type
+        : "b2/x-auto";
+  const payload = await new Promise<StorageUploadResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", target.upload_url);
+    xhr.open(provider === "r2" ? "PUT" : "POST", target.upload_url);
     xhr.timeout = 90 * 60 * 1000;
-    xhr.setRequestHeader("Authorization", target.authorization_token);
-    xhr.setRequestHeader("X-Bz-File-Name", encodeURIComponent(target.object_key));
     xhr.setRequestHeader("Content-Type", uploadContentType);
-    xhr.setRequestHeader("X-Bz-Content-Sha1", "do_not_verify");
+
+    if (provider === "backblaze") {
+      xhr.setRequestHeader("Authorization", target.authorization_token || "");
+      xhr.setRequestHeader("X-Bz-File-Name", encodeURIComponent(target.object_key));
+      xhr.setRequestHeader("X-Bz-Content-Sha1", "do_not_verify");
+    }
 
     xhr.upload.onprogress = (event) => {
       if (!onProgress || !event.lengthComputable) {
@@ -140,35 +156,35 @@ export const uploadBrowserFileToBackblaze = async (
       reject(
         new Error(
           xhr.status === 0
-            ? "Backblaze upload was blocked before completion. This usually means a browser, network, or CORS problem."
-            : `Backblaze upload failed with status ${xhr.status}.`
+            ? `${provider === "r2" ? "R2" : "Backblaze"} upload was blocked before completion. This usually means a browser, network, or CORS problem.`
+            : `${provider === "r2" ? "R2" : "Backblaze"} upload failed with status ${xhr.status}.`
         )
       );
-    xhr.onabort = () => reject(new Error("Backblaze upload was cancelled."));
+    xhr.onabort = () => reject(new Error(`${provider === "r2" ? "R2" : "Backblaze"} upload was cancelled.`));
     xhr.ontimeout = () =>
-      reject(new Error("Backblaze upload timed out before the browser finished sending the file."));
+      reject(new Error(`${provider === "r2" ? "R2" : "Backblaze"} upload timed out before the browser finished sending the file.`));
     xhr.onload = () => {
       const rawResponse = xhr.responseText || "";
-      let parsed = null as BackblazeUploadResult | null;
+      let parsed = null as StorageUploadResult | null;
 
       try {
-        parsed = rawResponse ? (JSON.parse(rawResponse) as BackblazeUploadResult) : null;
+        parsed = rawResponse ? (JSON.parse(rawResponse) as StorageUploadResult) : null;
       } catch {
         parsed = null;
       }
 
-      if (xhr.status >= 200 && xhr.status < 300 && parsed) {
-        resolve(parsed);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(parsed || { fileName: target.object_key, contentType: uploadContentType });
         return;
       }
 
       reject(
         new Error(
           String(
-            parsed?.message ||
+              parsed?.message ||
               parsed?.code ||
               rawResponse ||
-              `Backblaze upload failed with status ${xhr.status}.`
+              `${provider === "r2" ? "R2" : "Backblaze"} upload failed with status ${xhr.status}.`
           )
         )
       );
@@ -198,18 +214,21 @@ const finishLargeUpload = (payload: Record<string, unknown>) =>
     payload
   );
 
-export const uploadLargeBrowserFileToBackblaze = async (
+export const uploadLargeBrowserFileToStorage = async (
   file: File,
   target: AdminUploadTarget,
   onProgress?: UploadProgressCallback,
   onStateMessage?: UploadStateMessageCallback
 ) => {
+  const provider = resolveUploadProvider(target);
+
   if (!target.large_file_id || !target.part_size_bytes) {
-    throw new Error("Missing Backblaze large-file upload target details.");
+    throw new Error(`Missing ${provider === "r2" ? "R2 multipart" : "Backblaze large-file"} upload target details.`);
   }
 
   const totalParts = Math.ceil(file.size / target.part_size_bytes);
   const partSha1Array: string[] = [];
+  const multipartParts: { PartNumber: number; ETag: string }[] = [];
 
   for (let partIndex = 0; partIndex < totalParts; partIndex += 1) {
     const partNumber = partIndex + 1;
@@ -217,22 +236,31 @@ export const uploadLargeBrowserFileToBackblaze = async (
     const end = Math.min(start + target.part_size_bytes, file.size);
     const chunk = file.slice(start, end);
     const chunkBuffer = await chunk.arrayBuffer();
-    const chunkSha1 = await sha1Hex(chunkBuffer);
+    const chunkSha1 = provider === "backblaze" ? await sha1Hex(chunkBuffer) : null;
 
     onStateMessage?.(`Uploading part ${partNumber} of ${totalParts}...`);
 
     const partTarget = await getLargeUploadPartTarget({
       file_id: target.large_file_id,
+      multipart_upload_id: target.multipart_upload_id || target.large_file_id,
+      asset_id: target.asset.$id,
+      temp_key: target.temp_key,
+      object_key: target.object_key,
+      bucket: target.bucket,
       part_number: partNumber,
     });
 
     await new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", partTarget.upload_url);
+      xhr.open(provider === "r2" ? "PUT" : "POST", partTarget.upload_url);
       xhr.timeout = 90 * 60 * 1000;
-      xhr.setRequestHeader("Authorization", partTarget.authorization_token);
-      xhr.setRequestHeader("X-Bz-Part-Number", String(partNumber));
-      xhr.setRequestHeader("X-Bz-Content-Sha1", chunkSha1);
+      if (provider === "backblaze") {
+        xhr.setRequestHeader("Authorization", partTarget.authorization_token || "");
+        xhr.setRequestHeader("X-Bz-Part-Number", String(partNumber));
+        xhr.setRequestHeader("X-Bz-Content-Sha1", chunkSha1 || "");
+      } else {
+        xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      }
 
       xhr.upload.onprogress = (event) => {
         if (!onProgress || !event.lengthComputable) {
@@ -246,29 +274,40 @@ export const uploadLargeBrowserFileToBackblaze = async (
       xhr.onerror = () =>
         reject(
           new Error(
-            xhr.status === 0
-              ? "Backblaze large-file upload was blocked before completion. This usually means a browser, network, or CORS problem."
-              : `Backblaze large-file upload failed on part ${partNumber} with status ${xhr.status}.`
+          xhr.status === 0
+              ? `${provider === "r2" ? "R2 multipart" : "Backblaze large-file"} upload was blocked before completion. This usually means a browser, network, or CORS problem.`
+              : `${provider === "r2" ? "R2 multipart" : "Backblaze large-file"} upload failed on part ${partNumber} with status ${xhr.status}.`
           )
         );
-      xhr.onabort = () => reject(new Error("Backblaze large-file upload was cancelled."));
+      xhr.onabort = () => reject(new Error(`${provider === "r2" ? "R2 multipart" : "Backblaze large-file"} upload was cancelled.`));
       xhr.ontimeout = () =>
         reject(
           new Error(
-            `Backblaze large-file upload timed out while sending part ${partNumber} of ${totalParts}.`
+            `${provider === "r2" ? "R2 multipart" : "Backblaze large-file"} upload timed out while sending part ${partNumber} of ${totalParts}.`
           )
         );
       xhr.onload = () => {
         const rawResponse = xhr.responseText || "";
-        let parsed = null as BackblazeUploadResult | null;
+        let parsed = null as StorageUploadResult | null;
 
         try {
-          parsed = rawResponse ? (JSON.parse(rawResponse) as BackblazeUploadResult) : null;
+          parsed = rawResponse ? (JSON.parse(rawResponse) as StorageUploadResult) : null;
         } catch {
           parsed = null;
         }
 
         if (xhr.status >= 200 && xhr.status < 300) {
+          if (provider === "r2") {
+            const etagHeader = xhr.getResponseHeader("ETag");
+            if (!etagHeader) {
+              reject(new Error(`R2 multipart upload did not return an ETag for part ${partNumber}.`));
+              return;
+            }
+            multipartParts.push({
+              PartNumber: partNumber,
+              ETag: etagHeader.replace(/^"+|"+$/g, ""),
+            });
+          }
           resolve();
           return;
         }
@@ -279,7 +318,7 @@ export const uploadLargeBrowserFileToBackblaze = async (
               parsed?.message ||
                 parsed?.code ||
                 rawResponse ||
-                `Backblaze large-file upload failed on part ${partNumber}.`
+                `${provider === "r2" ? "R2 multipart" : "Backblaze large-file"} upload failed on part ${partNumber}.`
             )
           )
         );
@@ -288,7 +327,9 @@ export const uploadLargeBrowserFileToBackblaze = async (
       xhr.send(chunk);
     });
 
-    partSha1Array.push(chunkSha1);
+    if (chunkSha1) {
+      partSha1Array.push(chunkSha1);
+    }
   }
 
   onProgress?.(100);
@@ -298,15 +339,18 @@ export const uploadLargeBrowserFileToBackblaze = async (
     asset_id: target.asset.$id,
     job_id: target.job.$id,
     large_file_id: target.large_file_id,
+    multipart_upload_id: target.multipart_upload_id || target.large_file_id,
     temp_key: target.temp_key,
     uploaded_bytes: file.size,
     content_type: file.type || null,
     part_sha1_array: partSha1Array,
+    multipart_parts: multipartParts,
   });
 
   return {
     completion,
     partSha1Array,
+    multipartParts,
   };
 };
 
@@ -585,3 +629,9 @@ export const adminConsoleApi = {
 
 export const canSeeAdminModule = (capability: AdminCapability, available: AdminCapability[]) =>
   available.includes(capability);
+
+/** @deprecated Use uploadBrowserFileToStorage */
+export const uploadBrowserFileToBackblaze = uploadBrowserFileToStorage;
+
+/** @deprecated Use uploadLargeBrowserFileToStorage */
+export const uploadLargeBrowserFileToBackblaze = uploadLargeBrowserFileToStorage;

@@ -9,10 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useAdminMovies, useAdminMutation, useCategories, useCreatorProfiles } from "@/hooks/useAdminConsole";
 import {
-  uploadBrowserFileToBackblaze,
-  uploadLargeBrowserFileToBackblaze,
+  uploadBrowserFileToStorage,
+  uploadLargeBrowserFileToStorage,
 } from "@/lib/adminConsoleApi";
-import { isTempStoredAsset, resolveStoredAssetUrl } from "@/lib/media";
+import {
+  buildTempStoredAssetRef,
+  isTempStoredAsset,
+  resolveStoredAssetUrl,
+} from "@/lib/media";
 import { movieStatuses } from "@/types/admin";
 import { type AssetType, type MovieStatus } from "@/types/admin";
 import { type AppwriteMovieDocument } from "@/integrations/appwrite/types";
@@ -181,7 +185,7 @@ const buildPendingAssetLocation = (
 
   return {
     objectKey,
-    tempKey: `b2://movoplex-temp-processing/${objectKey}`,
+    tempKey: buildTempStoredAssetRef(objectKey),
   };
 };
 
@@ -516,7 +520,7 @@ const MoviesPage = () => {
                 },
               }));
               if (uploadTarget.upload_mode === "large") {
-                await uploadLargeBrowserFileToBackblaze(
+                await uploadLargeBrowserFileToStorage(
                   file,
                   uploadTarget,
                   (progress) => {
@@ -542,7 +546,7 @@ const MoviesPage = () => {
                   }
                 );
               } else {
-                uploadResult = await uploadBrowserFileToBackblaze(
+                uploadResult = await uploadBrowserFileToStorage(
                   file,
                   uploadTarget,
                   (progress) => {
@@ -567,7 +571,7 @@ const MoviesPage = () => {
                   message:
                     uploadFailure instanceof Error
                       ? uploadFailure.message
-                      : "Upload failed before the file reached Backblaze.",
+                      : "Upload failed before the file reached object storage.",
                 },
               }));
               await cancelUpload
@@ -744,7 +748,7 @@ const MoviesPage = () => {
                   Movie files
                 </h3>
                 <p className="mt-1 text-sm text-gray-400">
-                  Pick media files from your drive instead of pasting Backblaze URLs.
+                  Pick media files from your drive instead of pasting storage URLs.
                 </p>
               </div>
               <div className="grid gap-4 md:grid-cols-2">

@@ -1,20 +1,28 @@
 const ABSOLUTE_URL_PATTERN = /^https?:\/\//i;
-const B2_URL_PATTERN = /^b2:\/\/([^/]+)\/(.+)$/i;
+const STORED_ASSET_PATTERN = /^(b2|r2):\/\/([^/]+)\/(.+)$/i;
 const TEMP_PROCESSING_BUCKET = "movoplex-temp-processing";
 
 const trimSlashes = (value: string) => value.replace(/^\/+|\/+$/g, "");
 
 const bucketBaseUrls: Record<string, string | undefined> = {
-  "movoplex-videos": import.meta.env.VITE_B2_VIDEOS_BASE_URL,
-  "movoplex-thumbnails": import.meta.env.VITE_B2_THUMBNAILS_BASE_URL,
-  "movoplex-trailers": import.meta.env.VITE_B2_TRAILERS_BASE_URL,
-  "movoplex-profile-assets": import.meta.env.VITE_B2_PROFILE_ASSETS_BASE_URL,
-  "movoplex-temp-processing": import.meta.env.VITE_B2_TEMP_PROCESSING_BASE_URL,
-  "movoplex-subtitles": import.meta.env.VITE_B2_SUBTITLES_BASE_URL,
-  "movoplex-reports-logs": import.meta.env.VITE_B2_REPORTS_LOGS_BASE_URL,
-  "movoplex-originals": import.meta.env.VITE_B2_ORIGINALS_BASE_URL,
-  "movoplex-downloads": import.meta.env.VITE_B2_DOWNLOADS_BASE_URL,
+  "movoplex-videos": import.meta.env.VITE_R2_VIDEOS_BASE_URL,
+  "movoplex-thumbnails": import.meta.env.VITE_R2_THUMBNAILS_BASE_URL,
+  "movoplex-trailers": import.meta.env.VITE_R2_TRAILERS_BASE_URL,
+  "movoplex-profile-assets": import.meta.env.VITE_R2_PROFILE_ASSETS_BASE_URL,
+  "movoplex-temp-processing": import.meta.env.VITE_R2_TEMP_PROCESSING_BASE_URL,
+  "movoplex-subtitles": import.meta.env.VITE_R2_SUBTITLES_BASE_URL,
+  "movoplex-reports-logs": import.meta.env.VITE_R2_REPORTS_LOGS_BASE_URL,
+  "movoplex-originals": import.meta.env.VITE_R2_ORIGINALS_BASE_URL,
+  "movoplex-downloads": import.meta.env.VITE_R2_DOWNLOADS_BASE_URL,
 };
+
+export const getStorageProvider = () =>
+  (import.meta.env.VITE_STORAGE_PROVIDER || "r2").toLowerCase();
+
+export const buildTempStoredAssetRef = (objectKey: string) =>
+  `${getStorageProvider() === "r2" ? "r2" : "b2"}://${TEMP_PROCESSING_BUCKET}/${trimSlashes(
+    objectKey
+  )}`;
 
 export const resolveStoredAssetUrl = (value?: string | null) => {
   if (!value) {
@@ -25,10 +33,10 @@ export const resolveStoredAssetUrl = (value?: string | null) => {
     return value;
   }
 
-  const bucketMatch = value.match(B2_URL_PATTERN);
+  const bucketMatch = value.match(STORED_ASSET_PATTERN);
 
   if (bucketMatch) {
-    const [, bucketName, objectKey] = bucketMatch;
+    const [, , bucketName, objectKey] = bucketMatch;
     const bucketBaseUrl = bucketBaseUrls[bucketName];
 
     if (!bucketBaseUrl) {
@@ -38,7 +46,7 @@ export const resolveStoredAssetUrl = (value?: string | null) => {
     return `${bucketBaseUrl.replace(/\/+$/, "")}/${trimSlashes(objectKey)}`;
   }
 
-  const baseUrl = import.meta.env.VITE_BACKBLAZE_PUBLIC_BASE_URL;
+  const baseUrl = import.meta.env.VITE_R2_PUBLIC_BASE_URL;
 
   if (!baseUrl) {
     return value;
@@ -47,11 +55,21 @@ export const resolveStoredAssetUrl = (value?: string | null) => {
   return `${baseUrl.replace(/\/+$/, "")}/${trimSlashes(value)}`;
 };
 
+export const isStorageStoredAsset = (value?: string | null) =>
+  Boolean(value && STORED_ASSET_PATTERN.test(value));
+
 export const isB2StoredAsset = (value?: string | null) =>
-  Boolean(value && B2_URL_PATTERN.test(value));
+  Boolean(value && /^b2:\/\//i.test(value));
+
+export const isR2StoredAsset = (value?: string | null) =>
+  Boolean(value && /^r2:\/\//i.test(value));
 
 export const isTempStoredAsset = (value?: string | null) =>
-  Boolean(value && value.startsWith(`b2://${TEMP_PROCESSING_BUCKET}/`));
+  Boolean(
+    value &&
+      (value.startsWith(`r2://${TEMP_PROCESSING_BUCKET}/`) ||
+        value.startsWith(`b2://${TEMP_PROCESSING_BUCKET}/`))
+  );
 
 export const getYouTubeEmbedUrl = (url?: string | null) => {
   if (!url) {

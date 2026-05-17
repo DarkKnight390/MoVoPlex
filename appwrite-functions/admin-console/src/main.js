@@ -1,3 +1,17 @@
+import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CopyObjectCommand,
+  CreateMultipartUploadCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+  UploadPartCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
 const APPWRITE_METHOD_NOT_ALLOWED = 405;
 const APPWRITE_UNAUTHORIZED = 401;
 const APPWRITE_FORBIDDEN = 403;
@@ -158,6 +172,10 @@ const getPath = (req) => {
 };
 
 const sanitizeFileName = (value) => value.replace(/[^\w.-]+/g, "-");
+const getStorageProvider = () =>
+  String(process.env.STORAGE_PROVIDER || process.env.VITE_STORAGE_PROVIDER || "r2")
+    .trim()
+    .toLowerCase();
 
 const slugifySegment = (value) =>
   String(value || "")
@@ -408,6 +426,27 @@ const assertCapability = (capabilities, expected) => {
   }
 };
 
+const parseStoredKey = (value) => {
+  const normalized = String(value || "");
+  const match = normalized.match(/^(b2|r2):\/\/([^/]+)\/(.+)$/i);
+  if (!match) {
+    return null;
+  }
+  return {
+    scheme: match[1].toLowerCase(),
+    bucketName: match[2],
+    objectKey: match[3],
+  };
+};
+
+const buildStoredKey = ({ scheme, bucketName, objectKey }) =>
+  `${scheme}://${bucketName}/${objectKey}`;
+
+const isTempStoredKey = (value, tempBucketName) => {
+  const parsed = parseStoredKey(value);
+  return Boolean(parsed && parsed.bucketName === tempBucketName);
+};
+
 const getBackblazeConfig = () => {
   const keyId =
     process.env.BACKBLAZE_KEY_ID ||
@@ -488,6 +527,94 @@ const getBackblazeConfig = () => {
     },
   };
 };
+
+const getR2Config = () => {
+  const accountId = toNullableString(process.env.R2_ACCOUNT_ID);
+  const accessKeyId = toNullableString(process.env.R2_ACCESS_KEY_ID);
+  const secretAccessKey = toNullableString(process.env.R2_SECRET_ACCESS_KEY);
+  const endpoint =
+    toNullableString(process.env.R2_S3_ENDPOINT) ||
+    (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : null);
+  const tempBucketName =
+    toNullableString(process.env.R2_TEMP_PROCESSING_BUCKET_NAME) || "movoplex-temp-processing";
+  const videosBucketName = toNullableString(process.env.R2_VIDEOS_BUCKET_NAME) || "movoplex-videos";
+  const trailersBucketName =
+    toNullableString(process.env.R2_TRAILERS_BUCKET_NAME) || "movoplex-trailers";
+  const thumbnailsBucketName =
+    toNullableString(process.env.R2_THUMBNAILS_BUCKET_NAME) || "movoplex-thumbnails";
+  const subtitlesBucketName =
+    toNullableString(process.env.R2_SUBTITLES_BUCKET_NAME) || "movoplex-subtitles";
+  const signedUrlTtlSeconds = Math.max(
+    60,
+    Number(process.env.R2_SIGNED_URL_TTL_SECONDS || 3600)
+  );
+
+  if (!accountId || !accessKeyId || !secretAccessKey || !endpoint) {
+    const error = new Error(
+      "Missing R2 configuration. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_S3_ENDPOINT."
+    );
+    error.statusCode = APPWRITE_INTERNAL_ERROR;
+    throw error;
+  }
+
+  return {
+    accountId,
+    accessKeyId,
+    secretAccessKey,
+    endpoint,
+    tempBucketName,
+    signedUrlTtlSeconds,
+    bucketDestinations: {
+      poster: {
+        bucketName: thumbnailsBucketName,
+        movieField: "poster",
+      },
+      banner: {
+        bucketName: thumbnailsBucketName,
+        movieField: "banner",
+      },
+      trailer: {
+        bucketName: trailersBucketName,
+        movieField: "trailer",
+      },
+      main_video: {
+        bucketName: videosBucketName,
+        movieField: "video_url",
+      },
+      subtitle: {
+        bucketName: subtitlesBucketName,
+        movieField: null,
+      },
+    },
+  };
+};
+
+const getStorageConfig = () => {
+  const provider = getStorageProvider();
+
+  if (provider === "r2") {
+    return {
+      provider,
+      ...getR2Config(),
+    };
+  }
+
+  return {
+    provider: "backblaze",
+    ...getBackblazeConfig(),
+  };
+};
+
+const createR2Client = (config) =>
+  new S3Client({
+    region: "auto",
+    endpoint: config.endpoint,
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+    },
+  });
 
 const createB2AuthHeader = ({ keyId, applicationKey }) =>
   `Basic ${Buffer.from(`${keyId}:${applicationKey}`).toString("base64")}`;
@@ -810,6 +937,154 @@ const buildSignedBackblazeDownloadUrl = ({
     objectKey
   )}?Authorization=${encodeURIComponent(authorizationToken)}`;
 
+const encodeCopySourceKey = (bucketName, objectKey) =>
+  `${bucketName}/${String(objectKey || "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")}`;
+
+const presignR2SingleUpload = async ({ client, bucketName, objectKey, contentType }) =>
+  getSignedUrl(
+    client,
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: objectKey,
+      ContentType: contentType || "application/octet-stream",
+    }),
+    { expiresIn: 3600 }
+  );
+
+const startR2MultipartUpload = async ({ client, bucketName, objectKey, contentType }) => {
+  const payload = await client.send(
+    new CreateMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: objectKey,
+      ContentType: contentType || "application/octet-stream",
+    })
+  );
+
+  if (!payload.UploadId) {
+    const error = new Error("R2 multipart upload did not return an upload id.");
+    error.statusCode = APPWRITE_INTERNAL_ERROR;
+    throw error;
+  }
+
+  return payload;
+};
+
+const getR2UploadPartUrl = async ({
+  client,
+  bucketName,
+  objectKey,
+  uploadId,
+  partNumber,
+}) =>
+  getSignedUrl(
+    client,
+    new UploadPartCommand({
+      Bucket: bucketName,
+      Key: objectKey,
+      UploadId: uploadId,
+      PartNumber: partNumber,
+    }),
+    { expiresIn: 3600 }
+  );
+
+const finishR2MultipartUpload = async ({
+  client,
+  bucketName,
+  objectKey,
+  uploadId,
+  parts,
+}) =>
+  client.send(
+    new CompleteMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: objectKey,
+      UploadId: uploadId,
+      MultipartUpload: {
+        Parts: parts,
+      },
+    })
+  );
+
+const abortR2MultipartUpload = async ({ client, bucketName, objectKey, uploadId }) =>
+  client.send(
+    new AbortMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: objectKey,
+      UploadId: uploadId,
+    })
+  );
+
+const headR2Object = async ({ client, bucketName, objectKey }) =>
+  client.send(
+    new HeadObjectCommand({
+      Bucket: bucketName,
+      Key: objectKey,
+    })
+  );
+
+const headR2ObjectWithRetry = async ({
+  client,
+  bucketName,
+  objectKey,
+  retries = 5,
+  delayMs = 1000,
+}) => {
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      return await headR2Object({ client, bucketName, objectKey });
+    } catch (caughtError) {
+      if (attempt >= retries - 1) {
+        throw caughtError;
+      }
+      await sleep(delayMs);
+    }
+  }
+
+  return null;
+};
+
+const copyR2Object = async ({
+  client,
+  sourceBucketName,
+  sourceObjectKey,
+  destinationBucketName,
+  destinationObjectKey,
+}) =>
+  client.send(
+    new CopyObjectCommand({
+      Bucket: destinationBucketName,
+      Key: destinationObjectKey,
+      CopySource: encodeCopySourceKey(sourceBucketName, sourceObjectKey),
+      MetadataDirective: "COPY",
+    })
+  );
+
+const deleteR2Object = async ({ client, bucketName, objectKey }) =>
+  client.send(
+    new DeleteObjectCommand({
+      Bucket: bucketName,
+      Key: objectKey,
+    })
+  );
+
+const getSignedR2DownloadUrl = async ({
+  client,
+  bucketName,
+  objectKey,
+  expiresInSeconds,
+}) =>
+  getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: bucketName,
+      Key: objectKey,
+    }),
+    { expiresIn: expiresInSeconds }
+  );
+
 const parseB2Key = (value) => {
   const normalized = String(value || "");
   const match = normalized.match(/^b2:\/\/([^/]+)\/(.+)$/);
@@ -822,11 +1097,8 @@ const parseB2Key = (value) => {
   };
 };
 
-const isTempB2Key = (value, tempBucketName) =>
-  typeof value === "string" && value.startsWith(`b2://${tempBucketName}/`);
-
 const isFinalizedMovieMediaKey = (value, tempBucketName) =>
-  Boolean(value && parseB2Key(value) && !isTempB2Key(value, tempBucketName));
+  Boolean(value && parseStoredKey(value) && !isTempStoredKey(value, tempBucketName));
 
 const hasRequiredFinalizedMovieMedia = (movie, tempBucketName) =>
   Boolean(
@@ -911,7 +1183,7 @@ const buildMovieAssetPatch = ({ assetType, finalKey, currentMovie, tempBucketNam
 
   if (assetType === "poster") {
     patch.poster = finalKey;
-    if (!currentMovie.banner || isTempB2Key(currentMovie.banner, tempBucketName)) {
+    if (!currentMovie.banner || isTempStoredKey(currentMovie.banner, tempBucketName)) {
       patch.backdrop = finalKey;
     }
   }
@@ -930,12 +1202,11 @@ const buildMovieAssetPatch = ({ assetType, finalKey, currentMovie, tempBucketNam
   }
 
   const hasPoster = Boolean(
-    patch.poster ||
-      (currentMovie.poster && !isTempB2Key(currentMovie.poster, tempBucketName))
+    patch.poster || (currentMovie.poster && !isTempStoredKey(currentMovie.poster, tempBucketName))
   );
   const hasMainVideo = Boolean(
     patch.video_url ||
-      (currentMovie.video_url && !isTempB2Key(currentMovie.video_url, tempBucketName))
+      (currentMovie.video_url && !isTempStoredKey(currentMovie.video_url, tempBucketName))
   );
 
   if (
@@ -1225,7 +1496,7 @@ const publishMovie = async ({ req, membership, request, movieId }) => {
   const body = parseBody(req);
   const currentMovie = await getMovie(request, movieId);
   const nextStatus = toRequiredString(body.status, "Status");
-  const b2 = getBackblazeConfig();
+  const storage = getStorageConfig();
 
   if (!["published", "unpublished", "scheduled"].includes(nextStatus)) {
     const error = new Error("Publish route only supports published, unpublished, or scheduled.");
@@ -1234,7 +1505,7 @@ const publishMovie = async ({ req, membership, request, movieId }) => {
   }
 
   if (nextStatus === "published") {
-    if (!hasRequiredFinalizedMovieMedia(currentMovie, b2.tempBucketName)) {
+    if (!hasRequiredFinalizedMovieMedia(currentMovie, storage.tempBucketName)) {
       const error = new Error(
         "Movie cannot be published until a finalized poster and main video are ready."
       );
@@ -1327,12 +1598,12 @@ const beginUpload = async ({ req, membership, request }) => {
     throw error;
   }
 
-  const b2 = getBackblazeConfig();
-  const targetBucket = bucket || b2.tempBucketName;
+  const storage = getStorageConfig();
+  const targetBucket = bucket || storage.tempBucketName;
 
-  if (targetBucket !== b2.tempBucketName) {
+  if (targetBucket !== storage.tempBucketName) {
     const error = new Error(
-      `Uploads must start in ${b2.tempBucketName}. Received ${targetBucket}.`
+      `Uploads must start in ${storage.tempBucketName}. Received ${targetBucket}.`
     );
     error.statusCode = APPWRITE_BAD_REQUEST;
     throw error;
@@ -1346,25 +1617,50 @@ const beginUpload = async ({ req, membership, request }) => {
       assetType,
       fileName: originalFileName,
     });
-  const tempKey = `b2://${b2.tempBucketName}/${objectKey}`;
-  const authorization = await authorizeBackblaze(b2);
+  const tempKey = buildStoredKey({
+    scheme: storage.provider === "r2" ? "r2" : "b2",
+    bucketName: storage.tempBucketName,
+    objectKey,
+  });
   const shouldUseLargeFileUpload =
     assetType === "main_video" &&
     Number.isFinite(Number(sizeBytes)) &&
     Number(sizeBytes) >= LARGE_FILE_UPLOAD_THRESHOLD_BYTES;
-  const uploadTarget = shouldUseLargeFileUpload
-    ? await startBackblazeLargeFile({
-        apiUrl: authorization.apiInfo.storageApi.apiUrl,
-        authorizationToken: authorization.authorizationToken,
-        bucketId: b2.tempBucketId,
-        objectKey,
-        contentType: mimeType || "b2/x-auto",
-      })
-    : await getBackblazeUploadUrl({
-        apiUrl: authorization.apiInfo.storageApi.apiUrl,
-        authorizationToken: authorization.authorizationToken,
-        bucketId: b2.tempBucketId,
-      });
+  let uploadTarget = null;
+
+  if (storage.provider === "r2") {
+    const r2Client = createR2Client(storage);
+    uploadTarget = shouldUseLargeFileUpload
+      ? await startR2MultipartUpload({
+          client: r2Client,
+          bucketName: storage.tempBucketName,
+          objectKey,
+          contentType: mimeType || "application/octet-stream",
+        })
+      : {
+          uploadUrl: await presignR2SingleUpload({
+            client: r2Client,
+            bucketName: storage.tempBucketName,
+            objectKey,
+            contentType: mimeType || "application/octet-stream",
+          }),
+        };
+  } else {
+    const authorization = await authorizeBackblaze(storage);
+    uploadTarget = shouldUseLargeFileUpload
+      ? await startBackblazeLargeFile({
+          apiUrl: authorization.apiInfo.storageApi.apiUrl,
+          authorizationToken: authorization.authorizationToken,
+          bucketId: storage.tempBucketId,
+          objectKey,
+          contentType: mimeType || "b2/x-auto",
+        })
+      : await getBackblazeUploadUrl({
+          apiUrl: authorization.apiInfo.storageApi.apiUrl,
+          authorizationToken: authorization.authorizationToken,
+          bucketId: storage.tempBucketId,
+        });
+  }
 
   const existingAssets = await listDocuments(request, collectionIds.movieAssets);
   const existingJobs = await listDocuments(request, collectionIds.processingJobs);
@@ -1379,7 +1675,7 @@ const beginUpload = async ({ req, membership, request }) => {
 
   const asset = existingAsset
     ? await updateDocument(request, collectionIds.movieAssets, existingAsset.$id, {
-        bucket: b2.tempBucketName,
+        bucket: storage.tempBucketName,
         temp_key: tempKey,
         final_key: null,
         processing_status: "pending",
@@ -1393,7 +1689,7 @@ const beginUpload = async ({ req, membership, request }) => {
     : await createDocument(request, collectionIds.movieAssets, {
         movie_id: movieId,
         asset_type: assetType,
-        bucket: b2.tempBucketName,
+        bucket: storage.tempBucketName,
         temp_key: tempKey,
         final_key: null,
         processing_status: "pending",
@@ -1438,7 +1734,7 @@ const beginUpload = async ({ req, membership, request }) => {
     new_value_json: JSON.stringify({
       movie_id: movieId,
       asset_type: assetType,
-      bucket: b2.tempBucketName,
+      bucket: storage.tempBucketName,
       temp_key: tempKey,
       object_key: objectKey,
       reused_existing_asset: Boolean(existingAsset),
@@ -1449,13 +1745,15 @@ const beginUpload = async ({ req, membership, request }) => {
   });
 
   return {
+    storage_provider: storage.provider,
     upload_mode: shouldUseLargeFileUpload ? "large" : "single",
     upload_url: uploadTarget.uploadUrl || null,
     authorization_token: uploadTarget.authorizationToken || null,
-    bucket: b2.tempBucketName,
+    bucket: storage.tempBucketName,
     temp_key: tempKey,
     object_key: objectKey,
-    large_file_id: uploadTarget.fileId || null,
+    large_file_id: uploadTarget.fileId || uploadTarget.UploadId || null,
+    multipart_upload_id: uploadTarget.UploadId || null,
     part_size_bytes: shouldUseLargeFileUpload ? LARGE_FILE_PART_SIZE_BYTES : null,
     asset,
     job,
@@ -1590,11 +1888,14 @@ const completeLargeUpload = async ({ req, membership, request }) => {
     content_type: contentType,
     large_file_id: largeFileId,
     part_sha1_array: partSha1Array,
+    multipart_upload_id: multipartUploadId,
+    multipart_parts: multipartParts,
+    temp_key: providedTempKey,
   } = body;
 
-  if (!assetId || !jobId || !largeFileId || !Array.isArray(partSha1Array) || !partSha1Array.length) {
+  if (!assetId || !jobId || !largeFileId) {
     const error = new Error(
-      "asset_id, job_id, large_file_id, and part_sha1_array are required to finish a large upload."
+      "asset_id, job_id, and large_file_id are required to finish a large upload."
     );
     error.statusCode = APPWRITE_BAD_REQUEST;
     throw error;
@@ -1603,14 +1904,53 @@ const completeLargeUpload = async ({ req, membership, request }) => {
   const currentAsset = await getDocument(request, collectionIds.movieAssets, assetId);
   const currentJob = await getDocument(request, collectionIds.processingJobs, jobId);
   const currentMovie = await getMovie(request, currentAsset.movie_id);
-  const b2 = getBackblazeConfig();
-  const authorization = await authorizeBackblaze(b2);
-  const finishedFile = await finishBackblazeLargeFile({
-    apiUrl: authorization.apiInfo.storageApi.apiUrl,
-    authorizationToken: authorization.authorizationToken,
-    fileId: largeFileId,
-    partSha1Array,
-  });
+  const storage = getStorageConfig();
+  let finishedFile = null;
+
+  if (storage.provider === "r2") {
+    if (!Array.isArray(multipartParts) || !multipartParts.length) {
+      const error = new Error(
+        "multipart_parts are required to finish an R2 multipart upload."
+      );
+      error.statusCode = APPWRITE_BAD_REQUEST;
+      throw error;
+    }
+
+    const tempLocation = parseStoredKey(currentAsset.temp_key || providedTempKey);
+    if (!tempLocation) {
+      const error = new Error("The asset is missing a valid temp_key.");
+      error.statusCode = APPWRITE_BAD_REQUEST;
+      throw error;
+    }
+
+    const r2Client = createR2Client(storage);
+    await finishR2MultipartUpload({
+      client: r2Client,
+      bucketName: tempLocation.bucketName,
+      objectKey: tempLocation.objectKey,
+      uploadId: multipartUploadId || largeFileId,
+      parts: multipartParts,
+    });
+    finishedFile = {
+      fileId: multipartUploadId || largeFileId,
+    };
+  } else {
+    if (!Array.isArray(partSha1Array) || !partSha1Array.length) {
+      const error = new Error(
+        "part_sha1_array is required to finish a Backblaze large upload."
+      );
+      error.statusCode = APPWRITE_BAD_REQUEST;
+      throw error;
+    }
+
+    const authorization = await authorizeBackblaze(storage);
+    finishedFile = await finishBackblazeLargeFile({
+      apiUrl: authorization.apiInfo.storageApi.apiUrl,
+      authorizationToken: authorization.authorizationToken,
+      fileId: largeFileId,
+      partSha1Array,
+    });
+  }
 
   const asset = await updateDocument(request, collectionIds.movieAssets, assetId, {
     processing_status: "uploaded",
@@ -1647,9 +1987,13 @@ const completeLargeUpload = async ({ req, membership, request }) => {
       job_status: job.status,
       movie_status: movie.status,
       content_type: contentType || null,
-      backblaze_file_id: finishedFile.fileId || largeFileId,
+      backblaze_file_id:
+        storage.provider === "backblaze" ? finishedFile.fileId || largeFileId : null,
+      multipart_upload_id:
+        storage.provider === "r2" ? multipartUploadId || largeFileId : null,
       uploaded_bytes: Number.isFinite(Number(uploadedBytes)) ? Number(uploadedBytes) : null,
       upload_mode: "large",
+      storage_provider: storage.provider,
     }),
   });
 
@@ -1666,6 +2010,10 @@ const getLargeUploadPartTarget = async ({ req }) => {
   const body = parseBody(req);
   const fileId = toRequiredString(body.file_id, "file_id");
   const partNumber = Number(body.part_number);
+  const multipartUploadId = toNullableString(body.multipart_upload_id);
+  const tempKey = toNullableString(body.temp_key);
+  const objectKey = toNullableString(body.object_key);
+  const bucketName = toNullableString(body.bucket);
 
   if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10000) {
     const error = new Error("part_number must be an integer between 1 and 10000.");
@@ -1673,8 +2021,44 @@ const getLargeUploadPartTarget = async ({ req }) => {
     throw error;
   }
 
-  const b2 = getBackblazeConfig();
-  const authorization = await authorizeBackblaze(b2);
+  const storage = getStorageConfig();
+
+  if (storage.provider === "r2") {
+    const tempLocation =
+      parseStoredKey(tempKey) ||
+      (bucketName && objectKey
+        ? {
+            bucketName,
+            objectKey,
+          }
+        : null);
+
+    if (!tempLocation) {
+      const error = new Error(
+        "temp_key or bucket/object_key is required to request an R2 multipart upload part."
+      );
+      error.statusCode = APPWRITE_BAD_REQUEST;
+      throw error;
+    }
+
+    const r2Client = createR2Client(storage);
+    const uploadUrl = await getR2UploadPartUrl({
+      client: r2Client,
+      bucketName: tempLocation.bucketName,
+      objectKey: tempLocation.objectKey,
+      uploadId: multipartUploadId || fileId,
+      partNumber,
+    });
+
+    return {
+      file_id: fileId,
+      part_number: partNumber,
+      upload_url: uploadUrl,
+      authorization_token: null,
+    };
+  }
+
+  const authorization = await authorizeBackblaze(storage);
   const partTarget = await getBackblazeUploadPartUrl({
     apiUrl: authorization.apiInfo.storageApi.apiUrl,
     authorizationToken: authorization.authorizationToken,
@@ -1728,22 +2112,15 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
     };
   }
 
-  const tempLocation = parseB2Key(asset.temp_key);
+  const tempLocation = parseStoredKey(asset.temp_key);
   if (!tempLocation) {
     const error = new Error("The asset is missing a valid temp_key.");
     error.statusCode = APPWRITE_BAD_REQUEST;
     throw error;
   }
 
-  const b2 = getBackblazeConfig();
-  const destination = getDestinationForAssetType(b2, asset.asset_type);
-  const authorization = await authorizeBackblaze(b2);
-  const destinationBucketId = await resolveBucketId({
-    authorization,
-    config: b2,
-    bucketName: destination.bucketName,
-    bucketId: destination.bucketId,
-  });
+  const storage = getStorageConfig();
+  const destination = getDestinationForAssetType(storage, asset.asset_type);
 
   await updateDocument(request, collectionIds.processingJobs, resolvedJob.$id, {
     status: "running",
@@ -1754,48 +2131,105 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
   });
 
   try {
-    let sourceFileVersion = null;
-    if (providedFileId) {
-      sourceFileVersion = {
-        fileId: providedFileId,
-        fileName: tempLocation.objectKey,
-      };
+    let copiedFile = null;
+    let finalKey = null;
+
+    if (storage.provider === "r2") {
+      const r2Client = createR2Client(storage);
+
+      try {
+        copiedFile = await headR2ObjectWithRetry({
+          client: r2Client,
+          bucketName: tempLocation.bucketName,
+          objectKey: tempLocation.objectKey,
+        });
+      } catch {
+        const error = new Error("Temp file could not be located in R2.");
+        error.statusCode = APPWRITE_BAD_REQUEST;
+        throw error;
+      }
+
+      await copyR2Object({
+        client: r2Client,
+        sourceBucketName: tempLocation.bucketName,
+        sourceObjectKey: tempLocation.objectKey,
+        destinationBucketName: destination.bucketName,
+        destinationObjectKey: tempLocation.objectKey,
+      });
+
+      await deleteR2Object({
+        client: r2Client,
+        bucketName: tempLocation.bucketName,
+        objectKey: tempLocation.objectKey,
+      });
+
+      finalKey = buildStoredKey({
+        scheme: "r2",
+        bucketName: destination.bucketName,
+        objectKey: tempLocation.objectKey,
+      });
     } else {
-      sourceFileVersion = await getBackblazeFileVersionWithRetry({
+      const authorization = await authorizeBackblaze(storage);
+      const destinationBucketId = await resolveBucketId({
         authorization,
-        bucketId: b2.tempBucketId,
+        config: storage,
+        bucketName: destination.bucketName,
+        bucketId: destination.bucketId,
+      });
+      let sourceFileVersion = null;
+      if (providedFileId) {
+        sourceFileVersion = {
+          fileId: providedFileId,
+          fileName: tempLocation.objectKey,
+        };
+      } else {
+        sourceFileVersion = await getBackblazeFileVersionWithRetry({
+          authorization,
+          bucketId: storage.tempBucketId,
+          objectKey: tempLocation.objectKey,
+        });
+      }
+
+      if (!sourceFileVersion?.fileId) {
+        const error = new Error("Temp file could not be located in Backblaze.");
+        error.statusCode = APPWRITE_BAD_REQUEST;
+        throw error;
+      }
+
+      copiedFile = await copyBackblazeFile({
+        apiUrl: authorization.apiInfo.storageApi.apiUrl,
+        authorizationToken: authorization.authorizationToken,
+        sourceFileId: sourceFileVersion.fileId,
+        destinationBucketId,
+        fileName: tempLocation.objectKey,
+      });
+
+      await deleteBackblazeFileVersion({
+        apiUrl: authorization.apiInfo.storageApi.apiUrl,
+        authorizationToken: authorization.authorizationToken,
+        fileName: tempLocation.objectKey,
+        fileId: sourceFileVersion.fileId,
+      });
+
+      finalKey = buildStoredKey({
+        scheme: "b2",
+        bucketName: destination.bucketName,
         objectKey: tempLocation.objectKey,
       });
     }
 
-    if (!sourceFileVersion?.fileId) {
-      const error = new Error("Temp file could not be located in Backblaze.");
-      error.statusCode = APPWRITE_BAD_REQUEST;
-      throw error;
-    }
-
-    const copiedFile = await copyBackblazeFile({
-      apiUrl: authorization.apiInfo.storageApi.apiUrl,
-      authorizationToken: authorization.authorizationToken,
-      sourceFileId: sourceFileVersion.fileId,
-      destinationBucketId,
-      fileName: tempLocation.objectKey,
-    });
-
-    await deleteBackblazeFileVersion({
-      apiUrl: authorization.apiInfo.storageApi.apiUrl,
-      authorizationToken: authorization.authorizationToken,
-      fileName: tempLocation.objectKey,
-      fileId: sourceFileVersion.fileId,
-    });
-
-    const finalKey = `b2://${destination.bucketName}/${tempLocation.objectKey}`;
     const finalizedAsset = await updateDocument(request, collectionIds.movieAssets, asset.$id, {
       bucket: destination.bucketName,
       final_key: finalKey,
       processing_status: "ready",
-      mime_type: providedContentType || copiedFile.contentType || asset.mime_type || null,
-      size_bytes: copiedFile.contentLength || asset.size_bytes || null,
+      mime_type:
+        providedContentType ||
+        copiedFile?.contentType ||
+        copiedFile?.ContentType ||
+        asset.mime_type ||
+        null,
+      size_bytes:
+        copiedFile?.contentLength || copiedFile?.ContentLength || asset.size_bytes || null,
     });
     const completedJob = await updateDocument(request, collectionIds.processingJobs, resolvedJob.$id, {
       status: "completed",
@@ -1807,7 +2241,7 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
       assetType: asset.asset_type,
       finalKey,
       currentMovie: movie,
-      tempBucketName: b2.tempBucketName,
+      tempBucketName: storage.tempBucketName,
     });
     const updatedMovie =
       Object.keys(moviePatch).length > 0
@@ -1831,9 +2265,14 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
         job_status: completedJob.status,
         processing_status: finalizedAsset.processing_status,
         content_type:
-          providedContentType || copiedFile.contentType || asset.mime_type || null,
+          providedContentType ||
+          copiedFile?.contentType ||
+          copiedFile?.ContentType ||
+          asset.mime_type ||
+          null,
         content_sha1: providedContentSha1 || null,
         movie_status: updatedMovie.status,
+        storage_provider: storage.provider,
       }),
     });
 
@@ -1879,33 +2318,56 @@ const cancelUpload = async ({ req, membership, request }) => {
     return { success: true, already_cancelled: true, job: currentJob };
   }
 
-  const b2 = getBackblazeConfig();
-  const authorization = await authorizeBackblaze(b2);
+  const storage = getStorageConfig();
 
-  if (largeFileId) {
-    await cancelBackblazeLargeFile({
-      apiUrl: authorization.apiInfo.storageApi.apiUrl,
-      authorizationToken: authorization.authorizationToken,
-      fileId: largeFileId,
-    }).catch(() => null);
-  }
+  if (storage.provider === "r2") {
+    const r2Client = createR2Client(storage);
+    const tempLocation = currentAsset?.temp_key ? parseStoredKey(currentAsset.temp_key) : null;
 
-  if (currentAsset?.temp_key && !currentAsset.final_key) {
-    const tempLocation = parseB2Key(currentAsset.temp_key);
-    if (tempLocation?.objectKey) {
-      const tempFileVersion = await getBackblazeFileVersion({
-        authorization,
-        bucketId: b2.tempBucketId,
+    if (largeFileId && tempLocation?.objectKey) {
+      await abortR2MultipartUpload({
+        client: r2Client,
+        bucketName: tempLocation.bucketName,
+        objectKey: tempLocation.objectKey,
+        uploadId: largeFileId,
+      }).catch(() => null);
+    }
+
+    if (currentAsset?.temp_key && !currentAsset.final_key && tempLocation?.objectKey) {
+      await deleteR2Object({
+        client: r2Client,
+        bucketName: tempLocation.bucketName,
         objectKey: tempLocation.objectKey,
       }).catch(() => null);
+    }
+  } else {
+    const authorization = await authorizeBackblaze(storage);
 
-      if (tempFileVersion?.fileId) {
-        await deleteBackblazeFileVersion({
-          apiUrl: authorization.apiInfo.storageApi.apiUrl,
-          authorizationToken: authorization.authorizationToken,
-          fileName: tempLocation.objectKey,
-          fileId: tempFileVersion.fileId,
+    if (largeFileId) {
+      await cancelBackblazeLargeFile({
+        apiUrl: authorization.apiInfo.storageApi.apiUrl,
+        authorizationToken: authorization.authorizationToken,
+        fileId: largeFileId,
+      }).catch(() => null);
+    }
+
+    if (currentAsset?.temp_key && !currentAsset.final_key) {
+      const tempLocation = parseStoredKey(currentAsset.temp_key);
+      if (tempLocation?.objectKey) {
+        const tempFileVersion = await getBackblazeFileVersion({
+          authorization,
+          bucketId: storage.tempBucketId,
+          objectKey: tempLocation.objectKey,
         }).catch(() => null);
+
+        if (tempFileVersion?.fileId) {
+          await deleteBackblazeFileVersion({
+            apiUrl: authorization.apiInfo.storageApi.apiUrl,
+            authorizationToken: authorization.authorizationToken,
+            fileName: tempLocation.objectKey,
+            fileId: tempFileVersion.fileId,
+          }).catch(() => null);
+        }
       }
     }
   }
@@ -1999,25 +2461,42 @@ const deleteUpload = async ({ req, membership, request }) => {
 
   let tempFileDeleted = false;
   if (currentAsset?.temp_key && !currentAsset.final_key) {
-    const tempLocation = parseB2Key(currentAsset.temp_key);
+    const tempLocation = parseStoredKey(currentAsset.temp_key);
 
     if (tempLocation?.objectKey) {
-      const b2 = getBackblazeConfig();
-      const authorization = await authorizeBackblaze(b2);
-      const tempFileVersion = await getBackblazeFileVersion({
-        authorization,
-        bucketId: b2.tempBucketId,
-        objectKey: tempLocation.objectKey,
-      }).catch(() => null);
+      if (tempLocation.scheme === "r2") {
+        const r2Storage =
+          getStorageProvider() === "r2" ? getStorageConfig() : { provider: "r2", ...getR2Config() };
+        const r2Client = createR2Client(r2Storage);
 
-      if (tempFileVersion?.fileId) {
-        await deleteBackblazeFileVersion({
-          apiUrl: authorization.apiInfo.storageApi.apiUrl,
-          authorizationToken: authorization.authorizationToken,
-          fileName: tempLocation.objectKey,
-          fileId: tempFileVersion.fileId,
+        await deleteR2Object({
+          client: r2Client,
+          bucketName: tempLocation.bucketName,
+          objectKey: tempLocation.objectKey,
         }).catch(() => null);
         tempFileDeleted = true;
+      } else if (tempLocation.scheme === "b2") {
+        try {
+          const b2 = getBackblazeConfig();
+          const authorization = await authorizeBackblaze(b2);
+          const tempFileVersion = await getBackblazeFileVersion({
+            authorization,
+            bucketId: b2.tempBucketId,
+            objectKey: tempLocation.objectKey,
+          }).catch(() => null);
+
+          if (tempFileVersion?.fileId) {
+            await deleteBackblazeFileVersion({
+              apiUrl: authorization.apiInfo.storageApi.apiUrl,
+              authorizationToken: authorization.authorizationToken,
+              fileName: tempLocation.objectKey,
+              fileId: tempFileVersion.fileId,
+            }).catch(() => null);
+            tempFileDeleted = true;
+          }
+        } catch {
+          // Legacy Backblaze cleanup is optional after migrating to R2.
+        }
       }
     }
   }
@@ -2212,27 +2691,39 @@ const updateHomepage = async ({ req, membership, request }) => {
   return { success: true };
 };
 
-const signMediaUrls = async ({ req }) => {
-  getSignedInUserId(req);
+const signR2MediaRefs = async ({ refs, storage }) => {
+  const r2Client = createR2Client(storage);
+  const validDurationInSeconds = storage.signedUrlTtlSeconds;
+  const urls = {};
+  const errors = {};
 
-  const body = parseBody(req);
-  const refs = Array.from(
-    new Set(
-      []
-        .concat(body.refs || [])
-        .map((value) => toNullableString(value))
-        .filter(Boolean)
-    )
-  );
+  for (const ref of refs) {
+    const parsed = parseStoredKey(ref);
 
-  if (!refs.length) {
-    return {
-      success: true,
-      urls: {},
-      expires_in_seconds: 0,
-    };
+    if (!parsed || parsed.scheme !== "r2" || parsed.bucketName === storage.tempBucketName) {
+      continue;
+    }
+
+    try {
+      urls[ref] = await getSignedR2DownloadUrl({
+        client: r2Client,
+        bucketName: parsed.bucketName,
+        objectKey: parsed.objectKey,
+        expiresInSeconds: validDurationInSeconds,
+      });
+    } catch (caughtError) {
+      errors[ref] = caughtError?.message || "Signed media resolution failed.";
+    }
   }
 
+  return {
+    urls,
+    errors,
+    expires_in_seconds: validDurationInSeconds,
+  };
+};
+
+const signB2MediaRefs = async ({ refs }) => {
   const b2 = getBackblazeConfig();
   const authorization = await authorizeBackblaze(b2);
   const downloadUrl =
@@ -2292,10 +2783,66 @@ const signMediaUrls = async ({ req }) => {
   }
 
   return {
-    success: true,
     urls,
     errors,
     expires_in_seconds: validDurationInSeconds,
+  };
+};
+
+const signMediaUrls = async ({ req }) => {
+  getSignedInUserId(req);
+
+  const body = parseBody(req);
+  const refs = Array.from(
+    new Set(
+      []
+        .concat(body.refs || [])
+        .map((value) => toNullableString(value))
+        .filter(Boolean)
+    )
+  );
+
+  if (!refs.length) {
+    return {
+      success: true,
+      urls: {},
+      expires_in_seconds: 0,
+    };
+  }
+
+  const urls = {};
+  const errors = {};
+  let expiresInSeconds = 0;
+  const r2Refs = refs.filter((ref) => parseStoredKey(ref)?.scheme === "r2");
+  const b2Refs = refs.filter((ref) => parseStoredKey(ref)?.scheme === "b2");
+
+  if (r2Refs.length) {
+    const r2Storage =
+      getStorageProvider() === "r2" ? getStorageConfig() : { provider: "r2", ...getR2Config() };
+    const r2Result = await signR2MediaRefs({ refs: r2Refs, storage: r2Storage });
+    Object.assign(urls, r2Result.urls);
+    Object.assign(errors, r2Result.errors);
+    expiresInSeconds = Math.max(expiresInSeconds, r2Result.expires_in_seconds);
+  }
+
+  if (b2Refs.length) {
+    try {
+      const b2Result = await signB2MediaRefs({ refs: b2Refs });
+      Object.assign(urls, b2Result.urls);
+      Object.assign(errors, b2Result.errors);
+      expiresInSeconds = Math.max(expiresInSeconds, b2Result.expires_in_seconds);
+    } catch (caughtError) {
+      b2Refs.forEach((ref) => {
+        errors[ref] = caughtError?.message || "Backblaze signing is not configured.";
+      });
+    }
+  }
+
+  return {
+    success: true,
+    urls,
+    errors,
+    expires_in_seconds: expiresInSeconds,
   };
 };
 

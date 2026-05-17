@@ -8,7 +8,11 @@ import {
 import { AppwriteMovieDocument } from "@/integrations/appwrite/types";
 import { Movie } from "@/types/movie";
 import { adminConsoleApi } from "@/lib/adminConsoleApi";
-import { isB2StoredAsset, isTempStoredAsset, resolveStoredAssetUrl } from "@/lib/media";
+import {
+  isStorageStoredAsset,
+  isTempStoredAsset,
+  resolveStoredAssetUrl,
+} from "@/lib/media";
 
 type SignedUrlMap = Record<string, string>;
 
@@ -87,7 +91,7 @@ const collectPrivateAssetRefs = (movies: AppwriteMovieDocument[]) => {
       movie.preview_url,
       movie.video_url,
     ].forEach((value) => {
-      if (value && isB2StoredAsset(value) && !isTempStoredAsset(value)) {
+      if (value && isStorageStoredAsset(value) && !isTempStoredAsset(value)) {
         refs.add(value);
       }
     });

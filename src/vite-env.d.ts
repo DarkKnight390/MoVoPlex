@@ -17,6 +17,17 @@ interface ImportMetaEnv {
   readonly VITE_APPWRITE_AUDIT_LOGS_COLLECTION_ID?: string;
   readonly VITE_APPWRITE_ADMIN_LABEL?: string;
   readonly VITE_APPWRITE_FUNCTION_ADMIN_CONSOLE_ID?: string;
+  readonly VITE_STORAGE_PROVIDER?: string;
+  readonly VITE_R2_PUBLIC_BASE_URL?: string;
+  readonly VITE_R2_VIDEOS_BASE_URL?: string;
+  readonly VITE_R2_THUMBNAILS_BASE_URL?: string;
+  readonly VITE_R2_TRAILERS_BASE_URL?: string;
+  readonly VITE_R2_PROFILE_ASSETS_BASE_URL?: string;
+  readonly VITE_R2_TEMP_PROCESSING_BASE_URL?: string;
+  readonly VITE_R2_SUBTITLES_BASE_URL?: string;
+  readonly VITE_R2_REPORTS_LOGS_BASE_URL?: string;
+  readonly VITE_R2_ORIGINALS_BASE_URL?: string;
+  readonly VITE_R2_DOWNLOADS_BASE_URL?: string;
   readonly VITE_BACKBLAZE_PUBLIC_BASE_URL?: string;
   readonly VITE_B2_VIDEOS_BASE_URL?: string;
   readonly VITE_B2_THUMBNAILS_BASE_URL?: string;
