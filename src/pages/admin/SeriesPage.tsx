@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,7 +50,6 @@ type SeriesFormState = {
 
 type SeasonFormState = {
   season_number: string;
-  title: string;
   description: string;
   status: (typeof seasonStatuses)[number];
   poster: string;
@@ -85,7 +84,6 @@ const emptySeriesForm: SeriesFormState = {
 
 const emptySeasonForm: SeasonFormState = {
   season_number: "",
-  title: "",
   description: "",
   status: "draft",
   poster: "",
@@ -226,6 +224,7 @@ const SeriesPage = () => {
 
   const [selectedSeriesId, setSelectedSeriesId] = useState("");
   const [selectedSeasonId, setSelectedSeasonId] = useState("");
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState("");
   const [seriesForm, setSeriesForm] = useState<SeriesFormState>(emptySeriesForm);
   const [seasonForm, setSeasonForm] = useState<SeasonFormState>(emptySeasonForm);
   const [episodeForm, setEpisodeForm] = useState<EpisodeFormState>(emptyEpisodeForm);
@@ -243,6 +242,10 @@ const SeriesPage = () => {
   const [episodeThumbUpload, setEpisodeThumbUpload] = useState<UploadState>(emptyUploadState);
   const [episodeTrailerUpload, setEpisodeTrailerUpload] = useState<UploadState>(emptyUploadState);
   const [episodeVideoUpload, setEpisodeVideoUpload] = useState<UploadState>(emptyUploadState);
+  const [seasonPosterInputKey, setSeasonPosterInputKey] = useState(0);
+  const [episodeThumbInputKey, setEpisodeThumbInputKey] = useState(0);
+  const [episodeTrailerInputKey, setEpisodeTrailerInputKey] = useState(0);
+  const [episodeVideoInputKey, setEpisodeVideoInputKey] = useState(0);
 
   const selectedSeries = useMemo(
     () => series.find((entry) => entry.$id === selectedSeriesId) || null,
@@ -270,6 +273,11 @@ const SeriesPage = () => {
     [episodes, selectedSeasonId]
   );
 
+  const selectedEpisode = useMemo(
+    () => seasonEpisodes.find((entry) => entry.$id === selectedEpisodeId) || null,
+    [seasonEpisodes, selectedEpisodeId]
+  );
+
   const validateFileSize = (file: File | null) => {
     if (file && file.size > MAX_BROWSER_UPLOAD_BYTES) {
       toast.error("File is larger than the 3 GB browser upload limit.");
@@ -277,6 +285,79 @@ const SeriesPage = () => {
     }
     return true;
   };
+
+  useEffect(() => {
+    if (!selectedSeason) {
+      setSeasonForm(emptySeasonForm);
+      setSeasonPosterFile(null);
+      setSeasonPosterUpload(emptyUploadState());
+      setSeasonPosterInputKey((current) => current + 1);
+      return;
+    }
+
+    setSeasonForm({
+      season_number: String(selectedSeason.season_number ?? ""),
+      description: selectedSeason.description || "",
+      status: selectedSeason.status as SeasonFormState["status"],
+      poster: selectedSeason.poster || "",
+    });
+    setSeasonPosterFile(null);
+    setSeasonPosterUpload(emptyUploadState());
+    setSeasonPosterInputKey((current) => current + 1);
+  }, [selectedSeason]);
+
+  useEffect(() => {
+    if (!selectedSeason) {
+      setSelectedEpisodeId("");
+      setEpisodeForm(emptyEpisodeForm);
+      setEpisodeThumbFile(null);
+      setEpisodeTrailerFile(null);
+      setEpisodeVideoFile(null);
+      setEpisodeThumbUpload(emptyUploadState());
+      setEpisodeTrailerUpload(emptyUploadState());
+      setEpisodeVideoUpload(emptyUploadState());
+      setEpisodeThumbInputKey((current) => current + 1);
+      setEpisodeTrailerInputKey((current) => current + 1);
+      setEpisodeVideoInputKey((current) => current + 1);
+    }
+  }, [selectedSeason]);
+
+  useEffect(() => {
+    if (!selectedEpisode) {
+      setEpisodeForm(emptyEpisodeForm);
+      setEpisodeThumbFile(null);
+      setEpisodeTrailerFile(null);
+      setEpisodeVideoFile(null);
+      setEpisodeThumbUpload(emptyUploadState());
+      setEpisodeTrailerUpload(emptyUploadState());
+      setEpisodeVideoUpload(emptyUploadState());
+      setEpisodeThumbInputKey((current) => current + 1);
+      setEpisodeTrailerInputKey((current) => current + 1);
+      setEpisodeVideoInputKey((current) => current + 1);
+      return;
+    }
+
+    setEpisodeForm({
+      episode_number: String(selectedEpisode.episode_number ?? ""),
+      title: selectedEpisode.title || "",
+      description: selectedEpisode.description || "",
+      runtime: selectedEpisode.runtime || "",
+      status: selectedEpisode.status as EpisodeFormState["status"],
+      release_date: selectedEpisode.release_date || "",
+      thumbnail: selectedEpisode.thumbnail || "",
+      trailer: selectedEpisode.trailer || "",
+      video_url: selectedEpisode.video_url || "",
+    });
+    setEpisodeThumbFile(null);
+    setEpisodeTrailerFile(null);
+    setEpisodeVideoFile(null);
+    setEpisodeThumbUpload(emptyUploadState());
+    setEpisodeTrailerUpload(emptyUploadState());
+    setEpisodeVideoUpload(emptyUploadState());
+    setEpisodeThumbInputKey((current) => current + 1);
+    setEpisodeTrailerInputKey((current) => current + 1);
+    setEpisodeVideoInputKey((current) => current + 1);
+  }, [selectedEpisode]);
 
   const handleCreateSeries = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -352,7 +433,7 @@ const SeriesPage = () => {
     }
   };
 
-  const handleCreateSeason = async (event: React.FormEvent) => {
+  const handleSaveSeason = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedSeries) {
       toast.error("Select a series first.");
@@ -360,24 +441,31 @@ const SeriesPage = () => {
     }
 
     try {
-      const savedSeason = await mutations.createSeason.mutateAsync({
-        seriesId: selectedSeries.$id,
-        payload: {
-          season_number: Number(seasonForm.season_number),
-          title: seasonForm.title.trim(),
-          description: seasonForm.description || null,
-          poster:
-            seasonForm.poster ||
-            (seasonPosterFile
-              ? buildTempStoredAssetRef(
-                  `series/${selectedSeries.$id}/season-${seasonForm.season_number}/poster/${sanitizeFileName(
-                    seasonPosterFile.name
-                  )}`
-                )
-              : null),
-          status: seasonForm.status,
-        },
-      });
+      const payload = {
+        season_number: Number(seasonForm.season_number),
+        description: seasonForm.description || null,
+        poster:
+          seasonForm.poster ||
+          selectedSeason?.poster ||
+          (seasonPosterFile
+            ? buildTempStoredAssetRef(
+                `series/${selectedSeries.$id}/season-${seasonForm.season_number}/poster/${sanitizeFileName(
+                  seasonPosterFile.name
+                )}`
+              )
+            : null),
+        status: seasonForm.status,
+      };
+
+      const savedSeason = selectedSeason
+        ? await mutations.updateSeason.mutateAsync({
+            seasonId: selectedSeason.$id,
+            payload,
+          })
+        : await mutations.createSeason.mutateAsync({
+            seriesId: selectedSeries.$id,
+            payload,
+          });
 
       if (!savedSeason || !savedSeason.$id) {
         throw new Error(
@@ -403,15 +491,40 @@ const SeriesPage = () => {
         });
       }
 
-      toast.success("Season created.");
-      setSeasonForm(emptySeasonForm);
+      toast.success(selectedSeason ? "Season updated." : "Season created.");
       setSeasonPosterFile(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Season save failed.");
     }
   };
 
-  const handleCreateEpisode = async (event: React.FormEvent) => {
+  const handleDeleteSeason = async () => {
+    if (!selectedSeason) {
+      toast.error("Select a season first.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete Season ${selectedSeason.season_number}? This cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await mutations.deleteSeason.mutateAsync(selectedSeason.$id);
+      toast.success("Season deleted.");
+      setSelectedSeasonId("");
+      setSeasonForm(emptySeasonForm);
+      setSeasonPosterFile(null);
+      setSeasonPosterUpload(emptyUploadState());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Season delete failed.");
+    }
+  };
+
+  const handleSaveEpisode = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedSeries || !selectedSeason) {
       toast.error("Select a series and season first.");
@@ -427,7 +540,7 @@ const SeriesPage = () => {
     }
 
     try {
-      const savedEpisode = await mutations.createEpisode.mutateAsync({
+      const payload = {
         series_id: selectedSeries.$id,
         season_id: selectedSeason.$id,
         episode_number: Number(episodeForm.episode_number),
@@ -453,7 +566,14 @@ const SeriesPage = () => {
               )
             : null),
         video_url: episodeForm.video_url || null,
-      });
+      };
+
+      const savedEpisode = selectedEpisode
+        ? await mutations.updateEpisode.mutateAsync({
+            episodeId: selectedEpisode.$id,
+            payload,
+          })
+        : await mutations.createEpisode.mutateAsync(payload);
 
       if (!savedEpisode || !savedEpisode.$id) {
         throw new Error(
@@ -509,13 +629,44 @@ const SeriesPage = () => {
         });
       }
 
-      toast.success("Episode created.");
+      setSelectedEpisodeId(savedEpisode.$id);
+      toast.success(selectedEpisode ? "Episode updated." : "Episode created.");
       setEpisodeForm(emptyEpisodeForm);
       setEpisodeThumbFile(null);
       setEpisodeTrailerFile(null);
       setEpisodeVideoFile(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Episode save failed.");
+    }
+  };
+
+  const handleDeleteEpisode = async () => {
+    if (!selectedEpisode) {
+      toast.error("Select an episode first.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete Episode ${selectedEpisode.episode_number}: ${selectedEpisode.title}? This cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await mutations.deleteEpisode.mutateAsync(selectedEpisode.$id);
+      toast.success("Episode deleted.");
+      setSelectedEpisodeId("");
+      setEpisodeForm(emptyEpisodeForm);
+      setEpisodeThumbFile(null);
+      setEpisodeTrailerFile(null);
+      setEpisodeVideoFile(null);
+      setEpisodeThumbUpload(emptyUploadState());
+      setEpisodeTrailerUpload(emptyUploadState());
+      setEpisodeVideoUpload(emptyUploadState());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Episode delete failed.");
     }
   };
 
@@ -619,9 +770,35 @@ const SeriesPage = () => {
             </div>
           ) : null}
 
-          <form className="space-y-3" onSubmit={handleCreateSeason}>
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-800 bg-black/30 p-3 text-sm">
+            <div>
+              <p className="font-medium text-white">
+                {selectedSeason ? `Editing Season ${selectedSeason.season_number}` : "Create a new season"}
+              </p>
+              <p className="mt-1 text-gray-400">
+                {selectedSeason ? "Update season details or artwork." : "Choose a series, then fill out the season details."}
+              </p>
+            </div>
+            {selectedSeason ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-gray-700 bg-transparent text-white hover:bg-gray-900"
+                onClick={() => {
+                  setSelectedSeasonId("");
+                  setSeasonForm(emptySeasonForm);
+                  setSeasonPosterFile(null);
+                  setSeasonPosterUpload(emptyUploadState());
+                  setSeasonPosterInputKey((current) => current + 1);
+                }}
+              >
+                Add New Season
+              </Button>
+            ) : null}
+          </div>
+
+          <form className="space-y-3" onSubmit={handleSaveSeason}>
             <Input value={seasonForm.season_number} onChange={(e) => setSeasonForm((c) => ({ ...c, season_number: e.target.value }))} placeholder="Season number" className="border-gray-700 bg-gray-900 text-white" />
-            <Input value={seasonForm.title} onChange={(e) => setSeasonForm((c) => ({ ...c, title: e.target.value }))} placeholder="Season title" className="border-gray-700 bg-gray-900 text-white" />
             <Textarea value={seasonForm.description} onChange={(e) => setSeasonForm((c) => ({ ...c, description: e.target.value }))} placeholder="Season description" className="min-h-[90px] border-gray-700 bg-gray-900 text-white" />
             <Select value={seasonForm.status} onValueChange={(value) => setSeasonForm((c) => ({ ...c, status: value as SeasonFormState["status"] }))}>
               <SelectTrigger className="border-gray-700 bg-gray-900 text-white"><SelectValue placeholder="Status" /></SelectTrigger>
@@ -629,10 +806,27 @@ const SeriesPage = () => {
             </Select>
             <div className="space-y-2">
               <Label>Season poster</Label>
-              <Input type="file" accept="image/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setSeasonPosterFile(file); }} />
+              <Input key={seasonPosterInputKey} type="file" accept="image/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setSeasonPosterFile(file); }} />
+              {!seasonPosterFile && seasonForm.poster ? (
+                <p className="text-xs text-gray-500">Current asset: {seasonForm.poster}</p>
+              ) : null}
               {seasonPosterUpload.phase !== "idle" ? <p className="text-xs text-gray-400">{seasonPosterUpload.message} {seasonPosterUpload.progress}%</p> : null}
             </div>
-            <Button type="submit" className="bg-red-600 text-white hover:bg-red-700">Add Season</Button>
+            <div className="flex flex-wrap gap-3">
+              <Button type="submit" className="bg-red-600 text-white hover:bg-red-700">
+                {selectedSeason ? "Update Season" : "Add Season"}
+              </Button>
+              {selectedSeason ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="bg-red-950 text-red-100 hover:bg-red-900"
+                  onClick={handleDeleteSeason}
+                >
+                  Delete Season
+                </Button>
+              ) : null}
+            </div>
           </form>
 
           <div className="space-y-3">
@@ -645,7 +839,7 @@ const SeriesPage = () => {
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="font-medium text-white">Season {season.season_number}: {season.title}</p>
+                    <p className="font-medium text-white">Season {season.season_number}</p>
                     {season.description ? <p className="mt-1 text-xs text-gray-400">{season.description}</p> : null}
                   </div>
                   <div className="flex items-center gap-2">
@@ -688,7 +882,7 @@ const SeriesPage = () => {
           {selectedSeason ? (
             <div className="rounded-xl border border-gray-800 bg-black/30 p-4 text-sm">
               <p className="font-medium text-white">{selectedSeries?.title} / Season {selectedSeason.season_number}</p>
-              <p className="mt-1 text-gray-400">{selectedSeason.title}</p>
+              {selectedSeason.description ? <p className="mt-1 text-gray-400">{selectedSeason.description}</p> : null}
             </div>
           ) : (
             <div className="rounded-xl border border-gray-800 bg-black/30 p-4 text-sm text-gray-400">
@@ -696,7 +890,40 @@ const SeriesPage = () => {
             </div>
           )}
 
-          <form className="space-y-3" onSubmit={handleCreateEpisode}>
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-800 bg-black/30 p-3 text-sm">
+            <div>
+              <p className="font-medium text-white">
+                {selectedEpisode ? `Editing Episode ${selectedEpisode.episode_number}` : "Create a new episode"}
+              </p>
+              <p className="mt-1 text-gray-400">
+                {selectedEpisode ? selectedEpisode.title : "Select an episode card to edit it, or fill this form to add a new one."}
+              </p>
+            </div>
+            {selectedEpisode ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-gray-700 bg-transparent text-white hover:bg-gray-900"
+                onClick={() => {
+                  setSelectedEpisodeId("");
+                  setEpisodeForm(emptyEpisodeForm);
+                  setEpisodeThumbFile(null);
+                  setEpisodeTrailerFile(null);
+                  setEpisodeVideoFile(null);
+                  setEpisodeThumbUpload(emptyUploadState());
+                  setEpisodeTrailerUpload(emptyUploadState());
+                  setEpisodeVideoUpload(emptyUploadState());
+                  setEpisodeThumbInputKey((current) => current + 1);
+                  setEpisodeTrailerInputKey((current) => current + 1);
+                  setEpisodeVideoInputKey((current) => current + 1);
+                }}
+              >
+                Add New Episode
+              </Button>
+            ) : null}
+          </div>
+
+          <form className="space-y-3" onSubmit={handleSaveEpisode}>
             <div className="grid gap-3 md:grid-cols-2">
               <Input value={episodeForm.episode_number} onChange={(e) => setEpisodeForm((c) => ({ ...c, episode_number: e.target.value }))} placeholder="Episode number" className="border-gray-700 bg-gray-900 text-white" />
               <Input value={episodeForm.runtime} onChange={(e) => setEpisodeForm((c) => ({ ...c, runtime: e.target.value }))} placeholder="Runtime" className="border-gray-700 bg-gray-900 text-white" />
@@ -712,25 +939,47 @@ const SeriesPage = () => {
             </div>
             <div className="space-y-2">
               <Label>Episode thumbnail</Label>
-              <Input type="file" accept="image/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setEpisodeThumbFile(file); }} />
+              <Input key={episodeThumbInputKey} type="file" accept="image/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setEpisodeThumbFile(file); }} />
+              {!episodeThumbFile && episodeForm.thumbnail ? <p className="text-xs text-gray-500">Current asset: {episodeForm.thumbnail}</p> : null}
               {episodeThumbUpload.phase !== "idle" ? <p className="text-xs text-gray-400">{episodeThumbUpload.message} {episodeThumbUpload.progress}%</p> : null}
             </div>
             <div className="space-y-2">
               <Label>Episode trailer</Label>
-              <Input type="file" accept="video/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setEpisodeTrailerFile(file); }} />
+              <Input key={episodeTrailerInputKey} type="file" accept="video/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setEpisodeTrailerFile(file); }} />
+              {!episodeTrailerFile && episodeForm.trailer ? <p className="text-xs text-gray-500">Current asset: {episodeForm.trailer}</p> : null}
               {episodeTrailerUpload.phase !== "idle" ? <p className="text-xs text-gray-400">{episodeTrailerUpload.message} {episodeTrailerUpload.progress}%</p> : null}
             </div>
             <div className="space-y-2">
               <Label>Episode video</Label>
-              <Input type="file" accept="video/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setEpisodeVideoFile(file); }} />
+              <Input key={episodeVideoInputKey} type="file" accept="video/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setEpisodeVideoFile(file); }} />
+              {!episodeVideoFile && episodeForm.video_url ? <p className="text-xs text-gray-500">Current asset: {episodeForm.video_url}</p> : null}
               {episodeVideoUpload.phase !== "idle" ? <p className="text-xs text-gray-400">{episodeVideoUpload.message} {episodeVideoUpload.progress}%</p> : null}
             </div>
-            <Button type="submit" className="bg-red-600 text-white hover:bg-red-700">Upload Episode</Button>
+            <div className="flex flex-wrap gap-3">
+              <Button type="submit" className="bg-red-600 text-white hover:bg-red-700">
+                {selectedEpisode ? "Update Episode" : "Upload Episode"}
+              </Button>
+              {selectedEpisode ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="bg-red-950 text-red-100 hover:bg-red-900"
+                  onClick={handleDeleteEpisode}
+                >
+                  Delete Episode
+                </Button>
+              ) : null}
+            </div>
           </form>
 
           <div className="space-y-3">
             {seasonEpisodes.map((episode) => (
-              <div key={episode.$id} className="rounded-xl border border-gray-800 bg-black/30 p-4">
+              <button
+                key={episode.$id}
+                type="button"
+                className={`w-full rounded-xl border p-4 text-left ${selectedEpisodeId === episode.$id ? "border-red-600 bg-red-600/10" : "border-gray-800 bg-black/30"}`}
+                onClick={() => setSelectedEpisodeId(episode.$id)}
+              >
                 <div className="flex gap-4">
                   <img
                     src={episode.thumbnail ? resolveStoredAssetUrl(episode.thumbnail) : "https://placehold.co/160x90/111827/9ca3af?text=Episode"}
@@ -747,7 +996,8 @@ const SeriesPage = () => {
                           size="sm"
                           variant="outline"
                           className="border-gray-700 bg-transparent text-white hover:bg-gray-900"
-                          onClick={async () => {
+                          onClick={async (event) => {
+                            event.stopPropagation();
                             try {
                               await mutations.publishEpisode.mutateAsync({
                                 episodeId: episode.$id,
@@ -773,7 +1023,7 @@ const SeriesPage = () => {
                     </p>
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </CardContent>

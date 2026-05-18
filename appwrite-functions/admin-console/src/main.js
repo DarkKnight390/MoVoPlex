@@ -1561,6 +1561,7 @@ const getSeason = (request, seasonId) => getDocument(request, collectionIds.seas
 const getEpisode = (request, episodeId) => getDocument(request, collectionIds.episodes, episodeId);
 
 const padNumber = (value) => String(Math.max(1, Number(value) || 1)).padStart(2, "0");
+const formatSeasonTitle = (seasonNumber) => `Season ${Math.max(1, Number(seasonNumber) || 1)}`;
 
 const getUploadOwnerContext = async ({ request, movieId, seriesId, seasonId, episodeId }) => {
   if (episodeId) {
@@ -2018,10 +2019,11 @@ const publishSeries = async ({ req, membership, request, seriesId }) => {
 const createSeason = async ({ req, membership, request, seriesId }) => {
   const body = parseBody(req);
   await getSeries(request, seriesId);
+  const seasonNumber = Number(body.season_number);
   const payload = {
     series_id: seriesId,
-    season_number: Number(body.season_number),
-    title: toRequiredString(body.title, "title"),
+    season_number: seasonNumber,
+    title: formatSeasonTitle(seasonNumber),
     description: toNullableString(body.description),
     poster: toNullableString(body.poster),
     status: toRequiredString(body.status || "draft", "status"),
@@ -2041,10 +2043,11 @@ const createSeason = async ({ req, membership, request, seriesId }) => {
 const updateSeason = async ({ req, membership, request, seasonId }) => {
   const currentSeason = await getSeason(request, seasonId);
   const body = parseBody(req);
+  const seasonNumber =
+    body.season_number !== undefined ? Number(body.season_number) : currentSeason.season_number;
   const payload = {
-    season_number:
-      body.season_number !== undefined ? Number(body.season_number) : currentSeason.season_number,
-    title: body.title !== undefined ? toRequiredString(body.title, "title") : currentSeason.title,
+    season_number: seasonNumber,
+    title: formatSeasonTitle(seasonNumber),
     description:
       body.description !== undefined ? toNullableString(body.description) : currentSeason.description || null,
     poster: body.poster !== undefined ? toNullableString(body.poster) : currentSeason.poster || null,
