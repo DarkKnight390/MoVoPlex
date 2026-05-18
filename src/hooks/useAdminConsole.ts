@@ -44,6 +44,24 @@ export const useAdminMovies = () =>
     queryFn: adminConsoleApi.listMovies,
   });
 
+export const useAdminSeries = () =>
+  useQuery({
+    queryKey: ["admin", "series"],
+    queryFn: adminConsoleApi.listSeries,
+  });
+
+export const useAdminSeasons = () =>
+  useQuery({
+    queryKey: ["admin", "seasons"],
+    queryFn: adminConsoleApi.listSeasons,
+  });
+
+export const useAdminEpisodes = () =>
+  useQuery({
+    queryKey: ["admin", "episodes"],
+    queryFn: adminConsoleApi.listEpisodes,
+  });
+
 export const usePendingApprovalMovies = () =>
   useQuery({
     queryKey: ["admin", "pendingMovies"],
@@ -68,6 +86,12 @@ export const useMovieAssets = () =>
     queryFn: adminConsoleApi.listMovieAssets,
   });
 
+export const useEpisodeAssets = () =>
+  useQuery({
+    queryKey: ["admin", "episodeAssets"],
+    queryFn: adminConsoleApi.listEpisodeAssets,
+  });
+
 export const useProcessingJobs = () =>
   useQuery({
     queryKey: ["admin", "processingJobs"],
@@ -78,6 +102,18 @@ export const useMovieReviews = () =>
   useQuery({
     queryKey: ["admin", "movieReviews"],
     queryFn: adminConsoleApi.listMovieReviews,
+  });
+
+export const useSeriesReviews = () =>
+  useQuery({
+    queryKey: ["admin", "seriesReviews"],
+    queryFn: adminConsoleApi.listSeriesReviews,
+  });
+
+export const useEpisodeSubtitles = () =>
+  useQuery({
+    queryKey: ["admin", "episodeSubtitles"],
+    queryFn: adminConsoleApi.listEpisodeSubtitles,
   });
 
 export const useCategories = () =>
@@ -123,13 +159,26 @@ export const useAdminMutation = () => {
       mutationFn: adminConsoleApi.createMovie,
       onSuccess: invalidateAdminData,
     }),
+    createSeries: useMutation({
+      mutationFn: adminConsoleApi.createSeries,
+      onSuccess: invalidateAdminData,
+    }),
     updateMovie: useMutation({
       mutationFn: ({ movieId, payload }: { movieId: string; payload: Record<string, unknown> }) =>
         adminConsoleApi.updateMovie(movieId, payload),
       onSuccess: invalidateAdminData,
     }),
+    updateSeries: useMutation({
+      mutationFn: ({ seriesId, payload }: { seriesId: string; payload: Record<string, unknown> }) =>
+        adminConsoleApi.updateSeries(seriesId, payload),
+      onSuccess: invalidateAdminData,
+    }),
     deleteMovie: useMutation({
       mutationFn: (movieId: string) => adminConsoleApi.deleteMovie(movieId),
+      onSuccess: invalidateAdminData,
+    }),
+    deleteSeries: useMutation({
+      mutationFn: (seriesId: string) => adminConsoleApi.deleteSeries(seriesId),
       onSuccess: invalidateAdminData,
     }),
     reviewMovie: useMutation({
@@ -140,6 +189,48 @@ export const useAdminMutation = () => {
     publishMovie: useMutation({
       mutationFn: ({ movieId, payload }: { movieId: string; payload: Record<string, unknown> }) =>
         adminConsoleApi.publishMovie(movieId, payload),
+      onSuccess: invalidateAdminData,
+    }),
+    publishSeries: useMutation({
+      mutationFn: ({ seriesId, payload }: { seriesId: string; payload: Record<string, unknown> }) =>
+        adminConsoleApi.publishSeries(seriesId, payload),
+      onSuccess: invalidateAdminData,
+    }),
+    createSeason: useMutation({
+      mutationFn: ({ seriesId, payload }: { seriesId: string; payload: Record<string, unknown> }) =>
+        adminConsoleApi.createSeason(seriesId, payload),
+      onSuccess: invalidateAdminData,
+    }),
+    updateSeason: useMutation({
+      mutationFn: ({ seasonId, payload }: { seasonId: string; payload: Record<string, unknown> }) =>
+        adminConsoleApi.updateSeason(seasonId, payload),
+      onSuccess: invalidateAdminData,
+    }),
+    deleteSeason: useMutation({
+      mutationFn: (seasonId: string) => adminConsoleApi.deleteSeason(seasonId),
+      onSuccess: invalidateAdminData,
+    }),
+    publishSeason: useMutation({
+      mutationFn: ({ seasonId, payload }: { seasonId: string; payload: Record<string, unknown> }) =>
+        adminConsoleApi.publishSeason(seasonId, payload),
+      onSuccess: invalidateAdminData,
+    }),
+    createEpisode: useMutation({
+      mutationFn: adminConsoleApi.createEpisode,
+      onSuccess: invalidateAdminData,
+    }),
+    updateEpisode: useMutation({
+      mutationFn: ({ episodeId, payload }: { episodeId: string; payload: Record<string, unknown> }) =>
+        adminConsoleApi.updateEpisode(episodeId, payload),
+      onSuccess: invalidateAdminData,
+    }),
+    deleteEpisode: useMutation({
+      mutationFn: (episodeId: string) => adminConsoleApi.deleteEpisode(episodeId),
+      onSuccess: invalidateAdminData,
+    }),
+    publishEpisode: useMutation({
+      mutationFn: ({ episodeId, payload }: { episodeId: string; payload: Record<string, unknown> }) =>
+        adminConsoleApi.publishEpisode(episodeId, payload),
       onSuccess: invalidateAdminData,
     }),
     updateCreator: useMutation({

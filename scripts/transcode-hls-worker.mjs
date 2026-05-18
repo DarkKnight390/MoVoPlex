@@ -114,10 +114,26 @@ const MOVIES_COLLECTION_ID =
   process.env.APPWRITE_MOVIES_COLLECTION_ID ||
   process.env.VITE_APPWRITE_MOVIES_COLLECTION_ID ||
   "movies";
+const SERIES_COLLECTION_ID =
+  process.env.APPWRITE_SERIES_COLLECTION_ID ||
+  process.env.VITE_APPWRITE_SERIES_COLLECTION_ID ||
+  "series";
+const SEASONS_COLLECTION_ID =
+  process.env.APPWRITE_SEASONS_COLLECTION_ID ||
+  process.env.VITE_APPWRITE_SEASONS_COLLECTION_ID ||
+  "seasons";
+const EPISODES_COLLECTION_ID =
+  process.env.APPWRITE_EPISODES_COLLECTION_ID ||
+  process.env.VITE_APPWRITE_EPISODES_COLLECTION_ID ||
+  "episodes";
 const MOVIE_ASSETS_COLLECTION_ID =
   process.env.APPWRITE_MOVIE_ASSETS_COLLECTION_ID ||
   process.env.VITE_APPWRITE_MOVIE_ASSETS_COLLECTION_ID ||
   "movie_assets";
+const EPISODE_ASSETS_COLLECTION_ID =
+  process.env.APPWRITE_EPISODE_ASSETS_COLLECTION_ID ||
+  process.env.VITE_APPWRITE_EPISODE_ASSETS_COLLECTION_ID ||
+  "episode_assets";
 const PROCESSING_JOBS_COLLECTION_ID =
   process.env.APPWRITE_PROCESSING_JOBS_COLLECTION_ID ||
   process.env.VITE_APPWRITE_PROCESSING_JOBS_COLLECTION_ID ||
@@ -161,6 +177,47 @@ const updateDocument = (collectionId, documentId, data) =>
       data,
     }
   );
+
+const padNumber = (value) => String(Math.max(1, Number(value) || 1)).padStart(2, "0");
+
+const resolveTranscodeTarget = async ({ movieId, episodeId }) => {
+  if (movieId) {
+    const movie = await getDocument(MOVIES_COLLECTION_ID, movieId);
+    return {
+      kind: "movie",
+      rootId: movieId,
+      originalKey: `movies/${movieId}/original.mp4`,
+      manifestKey: `movies/${movieId}/master.m3u8`,
+      outputDir: path.join("movies", movieId),
+      movie,
+    };
+  }
+
+  if (episodeId) {
+    const episode = await getDocument(EPISODES_COLLECTION_ID, episodeId);
+    const season = await getDocument(SEASONS_COLLECTION_ID, episode.season_id);
+    const series = await getDocument(SERIES_COLLECTION_ID, episode.series_id);
+    const episodePrefix = path.join(
+      "series",
+      series.$id,
+      `season-${padNumber(season.season_number)}`,
+      `episode-${padNumber(episode.episode_number)}`
+    );
+
+    return {
+      kind: "episode",
+      rootId: episodeId,
+      originalKey: `${episodePrefix.replace(/\\/g, "/")}/original.mp4`,
+      manifestKey: `${episodePrefix.replace(/\\/g, "/")}/master.m3u8`,
+      outputDir: episodePrefix,
+      series,
+      season,
+      episode,
+    };
+  }
+
+  throw new Error("movieId or episodeId is required.");
+};
 
 const downloadOriginal = async ({ originalKey, originalPath }) => {
   log(`Downloading s3://${videosBucket}/${originalKey}`);
@@ -228,9 +285,9 @@ const downloadOriginal = async ({ originalKey, originalPath }) => {
   }
 };
 
-const runFfmpeg = async ({ originalPath, outputRoot, movieId, movieOutputRoot }) => {
+const runFfmpeg = async ({ originalPath, outputRoot, outputDir, outputRootDir }) => {
   log("Running FFmpeg transcode");
-  await mkdir(movieOutputRoot, { recursive: true });
+  await mkdir(outputRootDir, { recursive: true });
 
   const args = [
     "-y",
@@ -287,12 +344,12 @@ const runFfmpeg = async ({ originalPath, outputRoot, movieId, movieOutputRoot })
     "-hls_playlist_type",
     "vod",
     "-hls_segment_filename",
-    path.join(outputRoot, "movies", movieId, "%v", "segment_%03d.ts"),
+    path.join(outputRoot, outputDir, "%v", "segment_%03d.ts"),
     "-master_pl_name",
     "master.m3u8",
     "-var_stream_map",
     "v:0,a:0,name:1080p v:1,a:1,name:720p v:2,a:2,name:480p",
-    path.join(outputRoot, "movies", movieId, "%v", "index.m3u8"),
+    path.join(outputRoot, outputDir, "%v", "index.m3u8"),
   ];
 
   await new Promise((resolve, reject) => {
@@ -312,7 +369,7 @@ const runFfmpeg = async ({ originalPath, outputRoot, movieId, movieOutputRoot })
     });
   });
 
-  const masterAtExpectedPath = path.join(movieOutputRoot, "master.m3u8");
+  const masterAtExpectedPath = path.join(outputRootDir, "master.m3u8");
   const masterAtRoot = path.join(outputRoot, "master.m3u8");
 
   if (!existsSync(masterAtExpectedPath) && existsSync(masterAtRoot)) {
@@ -342,13 +399,13 @@ const collectFiles = async (dir) => {
   return files;
 };
 
-const uploadHlsOutput = async ({ movieId, movieOutputRoot }) => {
-  log(`Uploading HLS output to s3://${hlsBucket}/movies/${movieId}/`);
-  const files = await collectFiles(movieOutputRoot);
+const uploadHlsOutput = async ({ outputDir, outputRootDir }) => {
+  log(`Uploading HLS output to s3://${hlsBucket}/${outputDir.replace(/\\/g, "/")}/`);
+  const files = await collectFiles(outputRootDir);
 
   for (const filePath of files) {
-    const relativePath = path.relative(movieOutputRoot, filePath).replace(/\\/g, "/");
-    const key = `movies/${movieId}/${relativePath}`;
+    const relativePath = path.relative(outputRootDir, filePath).replace(/\\/g, "/");
+    const key = `${outputDir.replace(/\\/g, "/")}/${relativePath}`;
     const contentType = filePath.endsWith(".m3u8")
       ? "application/vnd.apple.mpegurl"
       : filePath.endsWith(".ts")
@@ -367,32 +424,40 @@ const uploadHlsOutput = async ({ movieId, movieOutputRoot }) => {
   }
 };
 
-const registerHlsWithAppwrite = async ({ movieId, manifestKey }) => {
+const registerHlsWithAppwrite = async ({ movieId, episodeId, manifestKey }) => {
   log("Registering HLS manifest in Appwrite");
   const finalKey = `r2://${hlsBucket}/${manifestKey}`;
-  const [movie, assets, jobs] = await Promise.all([
-    getDocument(MOVIES_COLLECTION_ID, movieId),
-    listDocuments(MOVIE_ASSETS_COLLECTION_ID),
+  const isEpisode = Boolean(episodeId);
+  const ownerDoc = await (isEpisode
+    ? getDocument(EPISODES_COLLECTION_ID, episodeId)
+    : getDocument(MOVIES_COLLECTION_ID, movieId));
+  const [assets, jobs, season, series] = await Promise.all([
+    listDocuments(isEpisode ? EPISODE_ASSETS_COLLECTION_ID : MOVIE_ASSETS_COLLECTION_ID),
     listDocuments(PROCESSING_JOBS_COLLECTION_ID),
+    isEpisode ? getDocument(SEASONS_COLLECTION_ID, ownerDoc.season_id) : null,
+    isEpisode ? getDocument(SERIES_COLLECTION_ID, ownerDoc.series_id) : null,
   ]);
 
   const existingAsset = assets.find(
     (item) =>
-      item.movie_id === movieId &&
-      item.asset_type === "hls_stream" &&
+      (isEpisode ? item.episode_id === episodeId : item.movie_id === movieId) &&
+      item.asset_type === (isEpisode ? "episode_hls_stream" : "hls_stream") &&
       item.final_key === finalKey
   );
 
-  const mainVideoAsset = assets.find(
+  const sourceVideoAsset = assets.find(
     (item) =>
-      item.movie_id === movieId &&
-      item.asset_type === "main_video" &&
+      (isEpisode ? item.episode_id === episodeId : item.movie_id === movieId) &&
+      item.asset_type === (isEpisode ? "episode_video" : "main_video") &&
       item.processing_status === "ready"
   );
 
   const assetPayload = {
-    movie_id: movieId,
-    asset_type: "hls_stream",
+    movie_id: isEpisode ? episodeId : movieId,
+    series_id: isEpisode ? series.$id : null,
+    season_id: isEpisode ? season.$id : null,
+    episode_id: isEpisode ? episodeId : null,
+    asset_type: isEpisode ? "episode_hls_stream" : "hls_stream",
     bucket: hlsBucket,
     temp_key: null,
     final_key: finalKey,
@@ -405,21 +470,32 @@ const registerHlsWithAppwrite = async ({ movieId, manifestKey }) => {
   };
 
   const asset = existingAsset
-    ? await updateDocument(MOVIE_ASSETS_COLLECTION_ID, existingAsset.$id, assetPayload)
-    : await createDocument(MOVIE_ASSETS_COLLECTION_ID, assetPayload);
+    ? await updateDocument(
+        isEpisode ? EPISODE_ASSETS_COLLECTION_ID : MOVIE_ASSETS_COLLECTION_ID,
+        existingAsset.$id,
+        assetPayload
+      )
+    : await createDocument(
+        isEpisode ? EPISODE_ASSETS_COLLECTION_ID : MOVIE_ASSETS_COLLECTION_ID,
+        assetPayload
+      );
 
   const existingHlsJob = jobs.find(
     (job) =>
-      job.movie_id === movieId &&
-      job.job_type === "hls_transcode" &&
+      (isEpisode ? job.episode_id === episodeId : job.movie_id === movieId) &&
+      job.job_type === (isEpisode ? "episode_hls_transcode" : "hls_transcode") &&
       ["queued", "processing", "completed"].includes(job.status)
   );
 
   const jobPayload = {
-    movie_id: movieId,
-    job_type: "hls_transcode",
+    movie_id: isEpisode ? episodeId : movieId,
+    series_id: isEpisode ? series.$id : null,
+    season_id: isEpisode ? season.$id : null,
+    episode_id: isEpisode ? episodeId : null,
+    entity_type: isEpisode ? "episode" : "movie",
+    job_type: isEpisode ? "episode_hls_transcode" : "hls_transcode",
     status: "completed",
-    input_asset_id: mainVideoAsset?.$id || null,
+    input_asset_id: sourceVideoAsset?.$id || null,
     output_asset_id: asset.$id,
     error_message: null,
   };
@@ -430,37 +506,41 @@ const registerHlsWithAppwrite = async ({ movieId, manifestKey }) => {
     await createDocument(PROCESSING_JOBS_COLLECTION_ID, jobPayload);
   }
 
-  if (movie.video_url !== finalKey) {
-    await updateDocument(MOVIES_COLLECTION_ID, movieId, {
+  if (ownerDoc.video_url !== finalKey) {
+    await updateDocument(isEpisode ? EPISODES_COLLECTION_ID : MOVIES_COLLECTION_ID, isEpisode ? episodeId : movieId, {
       video_url: finalKey,
       status:
-        ["draft", "uploading", "processing", "processing_failed"].includes(movie.status)
-          ? "ready"
-          : movie.status,
+        ["draft", "uploading", "processing", "processing_failed", "unpublished"].includes(ownerDoc.status)
+          ? (isEpisode ? "pending_review" : "ready")
+          : ownerDoc.status,
     });
   }
 
   log("Appwrite registration complete");
 };
 
-export const transcodeMovieToHls = async ({ movieId }) => {
-  if (!movieId) {
-    throw new Error("movieId is required.");
-  }
-
-  const originalKey = `movies/${movieId}/original.mp4`;
-  const manifestKey = `movies/${movieId}/master.m3u8`;
-  const workdir = path.resolve(".movoplex-worker", movieId);
+export const transcodeMovieToHls = async ({ movieId, episodeId }) => {
+  const target = await resolveTranscodeTarget({ movieId, episodeId });
+  const workdir = path.resolve(".movoplex-worker", `${target.kind}-${target.rootId}`);
   const originalPath = path.join(workdir, "original.mp4");
   const outputRoot = path.join(workdir, "output");
-  const movieOutputRoot = path.join(outputRoot, "movies", movieId);
+  const outputRootDir = path.join(outputRoot, target.outputDir);
 
   log(`Using FFmpeg: ${ffmpegPath}`);
-  await downloadOriginal({ originalKey, originalPath });
-  await runFfmpeg({ originalPath, outputRoot, movieId, movieOutputRoot });
-  await uploadHlsOutput({ movieId, movieOutputRoot });
-  await registerHlsWithAppwrite({ movieId, manifestKey });
-  log(`Done. Manifest registered as r2://${hlsBucket}/${manifestKey}`);
+  await downloadOriginal({ originalKey: target.originalKey, originalPath });
+  await runFfmpeg({
+    originalPath,
+    outputRoot,
+    outputDir: target.outputDir,
+    outputRootDir,
+  });
+  await uploadHlsOutput({ outputDir: target.outputDir, outputRootDir });
+  await registerHlsWithAppwrite({
+    movieId,
+    episodeId,
+    manifestKey: target.manifestKey,
+  });
+  log(`Done. Manifest registered as r2://${hlsBucket}/${target.manifestKey}`);
 };
 
 const isDirectRun =
@@ -468,13 +548,14 @@ const isDirectRun =
 
 if (isDirectRun) {
   const movieId = process.argv[2];
+  const episodeId = process.argv[3];
 
-  if (!movieId) {
-    console.error("Usage: node scripts/transcode-hls-worker.mjs <movieId>");
+  if (!movieId && !episodeId) {
+    console.error("Usage: node scripts/transcode-hls-worker.mjs <movieId> [episodeId]");
     process.exit(1);
   }
 
-  transcodeMovieToHls({ movieId }).catch((error) => {
+  transcodeMovieToHls({ movieId, episodeId }).catch((error) => {
     console.error(`[hls-worker] ${error.message}`);
     process.exit(1);
   });

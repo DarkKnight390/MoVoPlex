@@ -141,11 +141,13 @@ try {
     "PATCH",
     `/databases/${databaseId}/collections/${adminMembershipsCollectionId}/documents/${adminUserId}`,
     {
-      user_id: adminUserId,
-      role: adminRole,
-      status: "active",
-      display_name: adminName,
-      notes: "Bootstrapped by create-appwrite-admin-user.mjs",
+      data: {
+        user_id: adminUserId,
+        role: adminRole,
+        status: "active",
+        display_name: adminName,
+        notes: "Bootstrapped by create-appwrite-admin-user.mjs",
+      },
     }
   );
   console.log(`admin-membership:${adminUserId}: updated`);

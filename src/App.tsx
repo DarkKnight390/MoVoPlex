@@ -18,6 +18,7 @@ import AdminConsoleLayout from "./components/admin/AdminConsoleLayout";
 import ModuleShellPage from "./components/admin/ModuleShellPage";
 import DashboardPage from "./pages/admin/DashboardPage";
 import MoviesPage from "./pages/admin/MoviesPage";
+import SeriesPage from "./pages/admin/SeriesPage";
 import ApprovalQueuePage from "./pages/admin/ApprovalQueuePage";
 import CreatorsPage from "./pages/admin/CreatorsPage";
 import UploadsPage from "./pages/admin/UploadsPage";
@@ -78,6 +79,14 @@ const App = () => (
                 element={
                   <AdminCapabilityRoute capability="movies.view">
                     <MoviesPage />
+                  </AdminCapabilityRoute>
+                }
+              />
+              <Route
+                path="series"
+                element={
+                  <AdminCapabilityRoute capability="series.view">
+                    <SeriesPage />
                   </AdminCapabilityRoute>
                 }
               />

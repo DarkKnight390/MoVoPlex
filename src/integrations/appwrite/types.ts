@@ -5,11 +5,14 @@ import {
   type AssetType,
   type AuditAction,
   type CreatorStatus,
+  type EpisodeStatus,
   type MovieStatus,
   type ProcessingAssetStatus,
   type ProcessingJobStatus,
   type RejectionReasonCode,
   type ReviewDecision,
+  type SeasonStatus,
+  type SeriesStatus,
   type SubscriptionStatus,
 } from "@/types/admin";
 
@@ -49,6 +52,45 @@ export type AppwriteMovieDocument = Models.Document & {
   video_url?: string | null;
 };
 
+export type AppwriteSeriesDocument = Models.Document & {
+  title: string;
+  description: string;
+  poster: string;
+  banner?: string | null;
+  genres?: string[] | null;
+  language?: string | null;
+  country?: string | null;
+  age_rating?: string | null;
+  creator_user_id?: string | null;
+  status: SeriesStatus;
+  release_schedule?: string | null;
+  rating?: number | null;
+};
+
+export type AppwriteSeasonDocument = Models.Document & {
+  series_id: string;
+  season_number: number;
+  title: string;
+  description?: string | null;
+  poster?: string | null;
+  status: SeasonStatus;
+};
+
+export type AppwriteEpisodeDocument = Models.Document & {
+  series_id: string;
+  season_id: string;
+  episode_number: number;
+  title: string;
+  description?: string | null;
+  runtime?: string | null;
+  thumbnail?: string | null;
+  trailer?: string | null;
+  video_url?: string | null;
+  status: EpisodeStatus;
+  release_date?: string | null;
+  published_at?: string | null;
+};
+
 export type AppwriteAdminMembershipDocument = Models.Document & {
   user_id: string;
   role: AdminRole;
@@ -83,7 +125,26 @@ export type AppwriteSubscriberProfileDocument = Models.Document & {
 };
 
 export type AppwriteMovieAssetDocument = Models.Document & {
-  movie_id: string;
+  movie_id?: string | null;
+  series_id?: string | null;
+  season_id?: string | null;
+  asset_owner_type?: string | null;
+  asset_type: AssetType;
+  bucket: string;
+  temp_key?: string | null;
+  final_key?: string | null;
+  processing_status: ProcessingAssetStatus;
+  mime_type?: string | null;
+  size_bytes?: number | null;
+  duration_seconds?: number | null;
+  language?: string | null;
+  label?: string | null;
+};
+
+export type AppwriteEpisodeAssetDocument = Models.Document & {
+  series_id: string;
+  season_id: string;
+  episode_id: string;
   asset_type: AssetType;
   bucket: string;
   temp_key?: string | null;
@@ -97,7 +158,11 @@ export type AppwriteMovieAssetDocument = Models.Document & {
 };
 
 export type AppwriteProcessingJobDocument = Models.Document & {
-  movie_id: string;
+  movie_id?: string | null;
+  series_id?: string | null;
+  season_id?: string | null;
+  episode_id?: string | null;
+  entity_type?: string | null;
   job_type: string;
   status: ProcessingJobStatus;
   input_asset_id?: string | null;
@@ -118,6 +183,31 @@ export type AppwriteMovieReviewDocument = Models.Document & {
   rejection_reason_code?: RejectionReasonCode | null;
   rejection_reason_note?: string | null;
   publish_at?: string | null;
+};
+
+export type AppwriteSeriesReviewDocument = Models.Document & {
+  series_id: string;
+  reviewer_user_id: string;
+  decision: ReviewDecision;
+  rejection_reason_code?: RejectionReasonCode | null;
+  rejection_reason_note?: string | null;
+  publish_at?: string | null;
+};
+
+export type AppwriteEpisodeSubtitleDocument = Models.Document & {
+  episode_id: string;
+  language: string;
+  asset_id?: string | null;
+  label?: string | null;
+  is_default?: boolean | null;
+};
+
+export type AppwriteProfileEpisodeWatchHistoryDocument = Models.Document & {
+  user_id: string;
+  episode_id: string;
+  progress_seconds?: number | null;
+  completed?: boolean | null;
+  last_watched_at?: string | null;
 };
 
 export type AppwriteCategoryDocument = Models.Document & {

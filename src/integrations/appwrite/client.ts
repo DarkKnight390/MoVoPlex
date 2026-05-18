@@ -5,6 +5,12 @@ const projectId = import.meta.env.VITE_APPWRITE_PROJECT_ID;
 const databaseId = import.meta.env.VITE_APPWRITE_DATABASE_ID;
 const moviesCollectionId =
   import.meta.env.VITE_APPWRITE_MOVIES_COLLECTION_ID || "movies";
+const seriesCollectionId =
+  import.meta.env.VITE_APPWRITE_SERIES_COLLECTION_ID || "series";
+const seasonsCollectionId =
+  import.meta.env.VITE_APPWRITE_SEASONS_COLLECTION_ID || "seasons";
+const episodesCollectionId =
+  import.meta.env.VITE_APPWRITE_EPISODES_COLLECTION_ID || "episodes";
 const adminMembershipsCollectionId =
   import.meta.env.VITE_APPWRITE_ADMIN_MEMBERSHIPS_COLLECTION_ID ||
   "admin_memberships";
@@ -16,11 +22,20 @@ const subscriberProfilesCollectionId =
   "subscriber_profiles";
 const movieAssetsCollectionId =
   import.meta.env.VITE_APPWRITE_MOVIE_ASSETS_COLLECTION_ID || "movie_assets";
+const episodeAssetsCollectionId =
+  import.meta.env.VITE_APPWRITE_EPISODE_ASSETS_COLLECTION_ID || "episode_assets";
+const episodeSubtitlesCollectionId =
+  import.meta.env.VITE_APPWRITE_EPISODE_SUBTITLES_COLLECTION_ID || "episode_subtitles";
 const processingJobsCollectionId =
   import.meta.env.VITE_APPWRITE_PROCESSING_JOBS_COLLECTION_ID ||
   "processing_jobs";
 const movieReviewsCollectionId =
   import.meta.env.VITE_APPWRITE_MOVIE_REVIEWS_COLLECTION_ID || "movie_reviews";
+const seriesReviewsCollectionId =
+  import.meta.env.VITE_APPWRITE_SERIES_REVIEWS_COLLECTION_ID || "series_reviews";
+const profileEpisodeWatchHistoryCollectionId =
+  import.meta.env.VITE_APPWRITE_PROFILE_EPISODE_WATCH_HISTORY_COLLECTION_ID ||
+  "profile_episode_watch_history";
 const categoriesCollectionId =
   import.meta.env.VITE_APPWRITE_CATEGORIES_COLLECTION_ID || "categories";
 const homepageRowsCollectionId =
@@ -45,12 +60,19 @@ export const appwriteConfig = {
   },
   collections: {
     movies: moviesCollectionId,
+    series: seriesCollectionId,
+    seasons: seasonsCollectionId,
+    episodes: episodesCollectionId,
     adminMemberships: adminMembershipsCollectionId,
     creatorProfiles: creatorProfilesCollectionId,
     subscriberProfiles: subscriberProfilesCollectionId,
     movieAssets: movieAssetsCollectionId,
+    episodeAssets: episodeAssetsCollectionId,
+    episodeSubtitles: episodeSubtitlesCollectionId,
     processingJobs: processingJobsCollectionId,
     movieReviews: movieReviewsCollectionId,
+    seriesReviews: seriesReviewsCollectionId,
+    profileEpisodeWatchHistory: profileEpisodeWatchHistoryCollectionId,
     categories: categoriesCollectionId,
     homepageRows: homepageRowsCollectionId,
     homepageRowItems: homepageRowItemsCollectionId,

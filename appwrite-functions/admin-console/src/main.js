@@ -26,6 +26,8 @@ const capabilityMatrix = {
     "uploads.manage",
     "movies.manage",
     "movies.review",
+    "series.manage",
+    "series.review",
     "creators.manage",
     "categories.manage",
     "homepage.manage",
@@ -34,10 +36,12 @@ const capabilityMatrix = {
     "uploads.manage",
     "movies.manage",
     "movies.review",
+    "series.manage",
+    "series.review",
     "categories.manage",
     "homepage.manage",
   ],
-  uploader: ["uploads.manage", "movies.manage"],
+  uploader: ["uploads.manage", "movies.manage", "series.manage"],
 };
 
 const uploadAssetTypes = new Set([
@@ -47,6 +51,14 @@ const uploadAssetTypes = new Set([
   "main_video",
   "hls_stream",
   "subtitle",
+  "series_poster",
+  "series_banner",
+  "season_poster",
+  "episode_thumbnail",
+  "episode_trailer",
+  "episode_video",
+  "episode_hls_stream",
+  "episode_subtitle",
 ]);
 const finalizableAssetStatuses = new Set(["pending", "uploaded", "processing", "failed"]);
 const creatorStatuses = new Set(["pending", "approved", "verified", "suspended", "banned", "deleted"]);
@@ -64,6 +76,19 @@ const movieStatuses = new Set([
   "rejected",
   "unpublished",
   "deleted",
+]);
+const seriesStatuses = new Set(["draft", "pending", "approved", "published", "unpublished"]);
+const seasonStatuses = new Set(["draft", "pending", "published", "unpublished"]);
+const episodeStatuses = new Set([
+  "draft",
+  "uploading",
+  "processing",
+  "pending_review",
+  "approved",
+  "scheduled",
+  "published",
+  "rejected",
+  "unpublished",
 ]);
 const rejectionReasonCodes = new Set([
   "low_video_quality",
@@ -85,10 +110,26 @@ const collectionIds = {
     process.env.APPWRITE_MOVIES_COLLECTION_ID ||
     process.env.VITE_APPWRITE_MOVIES_COLLECTION_ID ||
     "movies",
+  series:
+    process.env.APPWRITE_SERIES_COLLECTION_ID ||
+    process.env.VITE_APPWRITE_SERIES_COLLECTION_ID ||
+    "series",
+  seasons:
+    process.env.APPWRITE_SEASONS_COLLECTION_ID ||
+    process.env.VITE_APPWRITE_SEASONS_COLLECTION_ID ||
+    "seasons",
+  episodes:
+    process.env.APPWRITE_EPISODES_COLLECTION_ID ||
+    process.env.VITE_APPWRITE_EPISODES_COLLECTION_ID ||
+    "episodes",
   movieAssets:
     process.env.APPWRITE_MOVIE_ASSETS_COLLECTION_ID ||
     process.env.VITE_APPWRITE_MOVIE_ASSETS_COLLECTION_ID ||
     "movie_assets",
+  episodeAssets:
+    process.env.APPWRITE_EPISODE_ASSETS_COLLECTION_ID ||
+    process.env.VITE_APPWRITE_EPISODE_ASSETS_COLLECTION_ID ||
+    "episode_assets",
   processingJobs:
     process.env.APPWRITE_PROCESSING_JOBS_COLLECTION_ID ||
     process.env.VITE_APPWRITE_PROCESSING_JOBS_COLLECTION_ID ||
@@ -97,6 +138,10 @@ const collectionIds = {
     process.env.APPWRITE_MOVIE_REVIEWS_COLLECTION_ID ||
     process.env.VITE_APPWRITE_MOVIE_REVIEWS_COLLECTION_ID ||
     "movie_reviews",
+  seriesReviews:
+    process.env.APPWRITE_SERIES_REVIEWS_COLLECTION_ID ||
+    process.env.VITE_APPWRITE_SERIES_REVIEWS_COLLECTION_ID ||
+    "series_reviews",
   creatorProfiles:
     process.env.APPWRITE_CREATOR_PROFILES_COLLECTION_ID ||
     process.env.VITE_APPWRITE_CREATOR_PROFILES_COLLECTION_ID ||
@@ -117,6 +162,14 @@ const collectionIds = {
     process.env.APPWRITE_AUDIT_LOGS_COLLECTION_ID ||
     process.env.VITE_APPWRITE_AUDIT_LOGS_COLLECTION_ID ||
     "audit_logs",
+  episodeSubtitles:
+    process.env.APPWRITE_EPISODE_SUBTITLES_COLLECTION_ID ||
+    process.env.VITE_APPWRITE_EPISODE_SUBTITLES_COLLECTION_ID ||
+    "episode_subtitles",
+  profileEpisodeWatchHistory:
+    process.env.APPWRITE_PROFILE_EPISODE_WATCH_HISTORY_COLLECTION_ID ||
+    process.env.VITE_APPWRITE_PROFILE_EPISODE_WATCH_HISTORY_COLLECTION_ID ||
+    "profile_episode_watch_history",
 };
 
 const databaseId =
@@ -140,6 +193,9 @@ const publicReadableCollectionIds = new Set();
 
 [
   collectionIds.movies,
+  collectionIds.series,
+  collectionIds.seasons,
+  collectionIds.episodes,
   collectionIds.categories,
   collectionIds.homepageRows,
   collectionIds.homepageRowItems,
@@ -511,17 +567,47 @@ const getBackblazeConfig = () => {
         bucketName: thumbnailsBucketName,
         movieField: "poster",
       },
+      series_poster: {
+        bucketId: thumbnailsBucketId,
+        bucketName: thumbnailsBucketName,
+        movieField: null,
+      },
+      season_poster: {
+        bucketId: thumbnailsBucketId,
+        bucketName: thumbnailsBucketName,
+        movieField: null,
+      },
+      episode_thumbnail: {
+        bucketId: thumbnailsBucketId,
+        bucketName: thumbnailsBucketName,
+        movieField: null,
+      },
       banner: {
         bucketId: thumbnailsBucketId,
         bucketName: thumbnailsBucketName,
         movieField: "banner",
+      },
+      series_banner: {
+        bucketId: thumbnailsBucketId,
+        bucketName: thumbnailsBucketName,
+        movieField: null,
       },
       trailer: {
         bucketId: trailersBucketId,
         bucketName: trailersBucketName,
         movieField: "trailer",
       },
+      episode_trailer: {
+        bucketId: trailersBucketId,
+        bucketName: trailersBucketName,
+        movieField: null,
+      },
       main_video: {
+        bucketId: videosBucketId,
+        bucketName: videosBucketName,
+        movieField: null,
+      },
+      episode_video: {
         bucketId: videosBucketId,
         bucketName: videosBucketName,
         movieField: null,
@@ -531,7 +617,17 @@ const getBackblazeConfig = () => {
         bucketName: process.env.BACKBLAZE_HLS_STREAMS_BUCKET_NAME || "movoplex-hls-streams",
         movieField: "video_url",
       },
+      episode_hls_stream: {
+        bucketId: null,
+        bucketName: process.env.BACKBLAZE_HLS_STREAMS_BUCKET_NAME || "movoplex-hls-streams",
+        movieField: null,
+      },
       subtitle: {
+        bucketId: subtitlesBucketId,
+        bucketName: subtitlesBucketName,
+        movieField: null,
+      },
+      episode_subtitle: {
         bucketId: subtitlesBucketId,
         bucketName: subtitlesBucketName,
         movieField: null,
@@ -583,15 +679,39 @@ const getR2Config = () => {
         bucketName: thumbnailsBucketName,
         movieField: "poster",
       },
+      series_poster: {
+        bucketName: thumbnailsBucketName,
+        movieField: null,
+      },
+      season_poster: {
+        bucketName: thumbnailsBucketName,
+        movieField: null,
+      },
+      episode_thumbnail: {
+        bucketName: thumbnailsBucketName,
+        movieField: null,
+      },
       banner: {
         bucketName: thumbnailsBucketName,
         movieField: "banner",
+      },
+      series_banner: {
+        bucketName: thumbnailsBucketName,
+        movieField: null,
       },
       trailer: {
         bucketName: trailersBucketName,
         movieField: "trailer",
       },
+      episode_trailer: {
+        bucketName: trailersBucketName,
+        movieField: null,
+      },
       main_video: {
+        bucketName: videosBucketName,
+        movieField: null,
+      },
+      episode_video: {
         bucketName: videosBucketName,
         movieField: null,
       },
@@ -599,7 +719,15 @@ const getR2Config = () => {
         bucketName: hlsStreamsBucketName,
         movieField: "video_url",
       },
+      episode_hls_stream: {
+        bucketName: hlsStreamsBucketName,
+        movieField: null,
+      },
       subtitle: {
+        bucketName: subtitlesBucketName,
+        movieField: null,
+      },
+      episode_subtitle: {
         bucketName: subtitlesBucketName,
         movieField: null,
       },
@@ -1131,13 +1259,70 @@ const getFileExtension = (objectKey, fallback = "") => {
   return dotIndex > -1 ? fileName.slice(dotIndex) : fallback;
 };
 
-const buildFinalObjectKey = ({ assetType, movieId, tempObjectKey }) => {
+const buildFinalObjectKey = ({
+  assetType,
+  movieId,
+  seriesId,
+  seasonNumber,
+  episodeNumber,
+  tempObjectKey,
+}) => {
+  const seriesPrefix =
+    seriesId && seasonNumber
+      ? `series/${seriesId}/season-${padNumber(seasonNumber)}`
+      : seriesId
+        ? `series/${seriesId}`
+        : null;
+
   if (assetType === "main_video") {
     return `movies/${movieId}/original${getFileExtension(tempObjectKey, ".mp4")}`;
   }
 
   if (assetType === "hls_stream") {
     return `movies/${movieId}/master.m3u8`;
+  }
+
+  if (assetType === "series_poster") {
+    return `${seriesPrefix}/poster${getFileExtension(tempObjectKey, ".jpg")}`;
+  }
+
+  if (assetType === "series_banner") {
+    return `${seriesPrefix}/banner${getFileExtension(tempObjectKey, ".jpg")}`;
+  }
+
+  if (assetType === "season_poster") {
+    return `${seriesPrefix}/poster${getFileExtension(tempObjectKey, ".jpg")}`;
+  }
+
+  if (assetType === "episode_thumbnail") {
+    return `${seriesPrefix}/episode-${padNumber(episodeNumber)}-thumb${getFileExtension(
+      tempObjectKey,
+      ".jpg"
+    )}`;
+  }
+
+  if (assetType === "episode_trailer") {
+    return `${seriesPrefix}/episode-${padNumber(episodeNumber)}-trailer${getFileExtension(
+      tempObjectKey,
+      ".mp4"
+    )}`;
+  }
+
+  if (assetType === "episode_video") {
+    return `${seriesPrefix}/episode-${padNumber(episodeNumber)}/original${getFileExtension(
+      tempObjectKey,
+      ".mp4"
+    )}`;
+  }
+
+  if (assetType === "episode_hls_stream") {
+    return `${seriesPrefix}/episode-${padNumber(episodeNumber)}/master.m3u8`;
+  }
+
+  if (assetType === "episode_subtitle") {
+    return `${seriesPrefix}/episode-${padNumber(episodeNumber)}/${sanitizeFileName(
+      tempObjectKey.split("/").pop() || `subtitle${getFileExtension(tempObjectKey, ".vtt")}`
+    )}`;
   }
 
   return tempObjectKey;
@@ -1257,6 +1442,65 @@ const buildMovieAssetPatch = ({ assetType, finalKey, currentMovie, tempBucketNam
   return patch;
 };
 
+const buildSeriesAssetPatch = ({ assetType, finalKey, currentSeries }) => {
+  const patch = {};
+
+  if (assetType === "series_poster") {
+    patch.poster = finalKey;
+  }
+
+  if (assetType === "series_banner") {
+    patch.banner = finalKey;
+  }
+
+  if (["draft", "pending", "unpublished"].includes(currentSeries.status)) {
+    patch.status = patch.poster || currentSeries.poster ? "pending" : currentSeries.status;
+  }
+
+  return patch;
+};
+
+const buildSeasonAssetPatch = ({ assetType, finalKey, currentSeason }) => {
+  const patch = {};
+
+  if (assetType === "season_poster") {
+    patch.poster = finalKey;
+  }
+
+  if (["draft", "unpublished"].includes(currentSeason.status)) {
+    patch.status = "pending";
+  }
+
+  return patch;
+};
+
+const buildEpisodeAssetPatch = ({ assetType, finalKey, currentEpisode }) => {
+  const patch = {};
+
+  if (assetType === "episode_thumbnail") {
+    patch.thumbnail = finalKey;
+  }
+
+  if (assetType === "episode_trailer") {
+    patch.trailer = finalKey;
+  }
+
+  if (assetType === "episode_hls_stream") {
+    patch.video_url = finalKey;
+  }
+
+  const hasThumbnail = Boolean(patch.thumbnail || currentEpisode.thumbnail);
+  const hasPlayback = Boolean(
+    patch.video_url || (currentEpisode.video_url && /\.m3u8(?:\?|$)/i.test(currentEpisode.video_url))
+  );
+
+  if (["draft", "uploading", "processing", "unpublished"].includes(currentEpisode.status)) {
+    patch.status = hasThumbnail && hasPlayback ? "pending_review" : "processing";
+  }
+
+  return patch;
+};
+
 const buildMovieAssetRemovalPatch = ({ assetType, currentMovie, tempKey }) => {
   const patch = {};
   const activeKey = tempKey;
@@ -1312,6 +1556,68 @@ const writeAuditLog = async (request, membership, req, entry) => {
 };
 
 const getMovie = (request, movieId) => getDocument(request, collectionIds.movies, movieId);
+const getSeries = (request, seriesId) => getDocument(request, collectionIds.series, seriesId);
+const getSeason = (request, seasonId) => getDocument(request, collectionIds.seasons, seasonId);
+const getEpisode = (request, episodeId) => getDocument(request, collectionIds.episodes, episodeId);
+
+const padNumber = (value) => String(Math.max(1, Number(value) || 1)).padStart(2, "0");
+
+const getUploadOwnerContext = async ({ request, movieId, seriesId, seasonId, episodeId }) => {
+  if (episodeId) {
+    const episode = await getEpisode(request, episodeId);
+    const season = await getSeason(request, episode.season_id);
+    const series = await getSeries(request, episode.series_id);
+    return { ownerType: "episode", episode, season, series };
+  }
+
+  if (seasonId) {
+    const season = await getSeason(request, seasonId);
+    const series = await getSeries(request, season.series_id);
+    return { ownerType: "season", season, series };
+  }
+
+  if (seriesId) {
+    const series = await getSeries(request, seriesId);
+    return { ownerType: "series", series };
+  }
+
+  if (movieId) {
+    const movie = await getMovie(request, movieId);
+    return { ownerType: "movie", movie };
+  }
+
+  const error = new Error("movie_id, series_id, season_id, or episode_id is required.");
+  error.statusCode = APPWRITE_BAD_REQUEST;
+  throw error;
+};
+
+const getAssetCollectionIdForOwnerType = (ownerType) =>
+  ownerType === "episode" ? collectionIds.episodeAssets : collectionIds.movieAssets;
+
+const getAssetAuditTargetType = (ownerType) =>
+  ownerType === "episode" ? "episode_asset" : "movie_asset";
+
+const getStoredAssetContext = async (request, assetId) => {
+  try {
+    const asset = await getDocument(request, collectionIds.movieAssets, assetId);
+    return {
+      asset,
+      assetCollectionId: collectionIds.movieAssets,
+      ownerType: asset.asset_owner_type || (asset.movie_id ? "movie" : asset.season_id ? "season" : "series"),
+    };
+  } catch (caughtError) {
+    if (caughtError.statusCode !== APPWRITE_NOT_FOUND) {
+      throw caughtError;
+    }
+  }
+
+  const asset = await getDocument(request, collectionIds.episodeAssets, assetId);
+  return {
+    asset,
+    assetCollectionId: collectionIds.episodeAssets,
+    ownerType: "episode",
+  };
+};
 
 const buildMoviePayload = (body, existingMovie = null) => {
   const title = body.title !== undefined ? toRequiredString(body.title, "Title") : existingMovie?.title;
@@ -1610,10 +1916,290 @@ const updateCreator = async ({ req, membership, request, creatorId }) => {
   return creator;
 };
 
+const createSeries = async ({ req, membership, request }) => {
+  const body = parseBody(req);
+  const payload = {
+    title: toRequiredString(body.title, "title"),
+    description: toRequiredString(body.description, "description"),
+    poster: toRequiredString(body.poster, "poster"),
+    banner: toNullableString(body.banner),
+    genres: toStringArray(body.genres),
+    language: toNullableString(body.language),
+    country: toNullableString(body.country),
+    age_rating: toNullableString(body.age_rating),
+    creator_user_id: toNullableString(body.creator_user_id),
+    status: toRequiredString(body.status || "draft", "status"),
+    release_schedule: toNullableString(body.release_schedule),
+    rating: toNumberOrNull(body.rating),
+  };
+
+  assertEnumValue(payload.status, seriesStatuses, "series status");
+  const series = await createDocument(request, collectionIds.series, payload);
+  await writeAuditLog(request, membership, req, {
+    action: "movie_created",
+    target_type: "series",
+    target_id: series.$id,
+    target_label: series.title,
+    new_value_json: JSON.stringify(cloneForAudit(series)),
+  });
+  return series;
+};
+
+const updateSeries = async ({ req, membership, request, seriesId }) => {
+  const currentSeries = await getSeries(request, seriesId);
+  const body = parseBody(req);
+  const payload = {
+    title: body.title !== undefined ? toRequiredString(body.title, "title") : currentSeries.title,
+    description:
+      body.description !== undefined
+        ? toRequiredString(body.description, "description")
+        : currentSeries.description,
+    poster: body.poster !== undefined ? toRequiredString(body.poster, "poster") : currentSeries.poster,
+    banner: body.banner !== undefined ? toNullableString(body.banner) : currentSeries.banner || null,
+    genres: body.genres !== undefined ? toStringArray(body.genres) : currentSeries.genres || [],
+    language: body.language !== undefined ? toNullableString(body.language) : currentSeries.language || null,
+    country: body.country !== undefined ? toNullableString(body.country) : currentSeries.country || null,
+    age_rating:
+      body.age_rating !== undefined ? toNullableString(body.age_rating) : currentSeries.age_rating || null,
+    creator_user_id:
+      body.creator_user_id !== undefined
+        ? toNullableString(body.creator_user_id)
+        : currentSeries.creator_user_id || null,
+    status: body.status !== undefined ? toRequiredString(body.status, "status") : currentSeries.status,
+    release_schedule:
+      body.release_schedule !== undefined
+        ? toNullableString(body.release_schedule)
+        : currentSeries.release_schedule || null,
+    rating: body.rating !== undefined ? toNumberOrNull(body.rating) : currentSeries.rating || null,
+  };
+  assertEnumValue(payload.status, seriesStatuses, "series status");
+  const series = await updateDocument(request, collectionIds.series, seriesId, payload);
+  await writeAuditLog(request, membership, req, {
+    action: "movie_updated",
+    target_type: "series",
+    target_id: seriesId,
+    target_label: currentSeries.title,
+    old_value_json: JSON.stringify(cloneForAudit(currentSeries)),
+    new_value_json: JSON.stringify(cloneForAudit(series)),
+  });
+  return series;
+};
+
+const deleteSeries = async ({ req, membership, request, seriesId }) => {
+  const currentSeries = await getSeries(request, seriesId);
+  await deleteDocument(request, collectionIds.series, seriesId);
+  await writeAuditLog(request, membership, req, {
+    action: "movie_deleted",
+    target_type: "series",
+    target_id: seriesId,
+    target_label: currentSeries.title,
+    old_value_json: JSON.stringify(cloneForAudit(currentSeries)),
+  });
+  return { success: true };
+};
+
+const publishSeries = async ({ req, membership, request, seriesId }) => {
+  const body = parseBody(req);
+  const currentSeries = await getSeries(request, seriesId);
+  const nextStatus = toRequiredString(body.status || "published", "status");
+  assertEnumValue(nextStatus, seriesStatuses, "series status");
+  const series = await updateDocument(request, collectionIds.series, seriesId, { status: nextStatus });
+  await writeAuditLog(request, membership, req, {
+    action: nextStatus === "published" ? "movie_published" : "movie_unpublished",
+    target_type: "series",
+    target_id: seriesId,
+    target_label: currentSeries.title,
+    old_value_json: JSON.stringify(cloneForAudit(currentSeries)),
+    new_value_json: JSON.stringify(cloneForAudit(series)),
+  });
+  return series;
+};
+
+const createSeason = async ({ req, membership, request, seriesId }) => {
+  const body = parseBody(req);
+  await getSeries(request, seriesId);
+  const payload = {
+    series_id: seriesId,
+    season_number: Number(body.season_number),
+    title: toRequiredString(body.title, "title"),
+    description: toNullableString(body.description),
+    poster: toNullableString(body.poster),
+    status: toRequiredString(body.status || "draft", "status"),
+  };
+  assertEnumValue(payload.status, seasonStatuses, "season status");
+  const season = await createDocument(request, collectionIds.seasons, payload);
+  await writeAuditLog(request, membership, req, {
+    action: "movie_created",
+    target_type: "season",
+    target_id: season.$id,
+    target_label: season.title,
+    new_value_json: JSON.stringify(cloneForAudit(season)),
+  });
+  return season;
+};
+
+const updateSeason = async ({ req, membership, request, seasonId }) => {
+  const currentSeason = await getSeason(request, seasonId);
+  const body = parseBody(req);
+  const payload = {
+    season_number:
+      body.season_number !== undefined ? Number(body.season_number) : currentSeason.season_number,
+    title: body.title !== undefined ? toRequiredString(body.title, "title") : currentSeason.title,
+    description:
+      body.description !== undefined ? toNullableString(body.description) : currentSeason.description || null,
+    poster: body.poster !== undefined ? toNullableString(body.poster) : currentSeason.poster || null,
+    status: body.status !== undefined ? toRequiredString(body.status, "status") : currentSeason.status,
+  };
+  assertEnumValue(payload.status, seasonStatuses, "season status");
+  const season = await updateDocument(request, collectionIds.seasons, seasonId, payload);
+  await writeAuditLog(request, membership, req, {
+    action: "movie_updated",
+    target_type: "season",
+    target_id: seasonId,
+    target_label: currentSeason.title,
+    old_value_json: JSON.stringify(cloneForAudit(currentSeason)),
+    new_value_json: JSON.stringify(cloneForAudit(season)),
+  });
+  return season;
+};
+
+const deleteSeason = async ({ req, membership, request, seasonId }) => {
+  const currentSeason = await getSeason(request, seasonId);
+  await deleteDocument(request, collectionIds.seasons, seasonId);
+  await writeAuditLog(request, membership, req, {
+    action: "movie_deleted",
+    target_type: "season",
+    target_id: seasonId,
+    target_label: currentSeason.title,
+    old_value_json: JSON.stringify(cloneForAudit(currentSeason)),
+  });
+  return { success: true };
+};
+
+const publishSeason = async ({ req, membership, request, seasonId }) => {
+  const body = parseBody(req);
+  const currentSeason = await getSeason(request, seasonId);
+  const nextStatus = toRequiredString(body.status || "published", "status");
+  assertEnumValue(nextStatus, seasonStatuses, "season status");
+  const season = await updateDocument(request, collectionIds.seasons, seasonId, { status: nextStatus });
+  await writeAuditLog(request, membership, req, {
+    action: nextStatus === "published" ? "movie_published" : "movie_unpublished",
+    target_type: "season",
+    target_id: seasonId,
+    target_label: currentSeason.title,
+    old_value_json: JSON.stringify(cloneForAudit(currentSeason)),
+    new_value_json: JSON.stringify(cloneForAudit(season)),
+  });
+  return season;
+};
+
+const createEpisode = async ({ req, membership, request }) => {
+  const body = parseBody(req);
+  const seriesId = toRequiredString(body.series_id, "series_id");
+  const seasonId = toRequiredString(body.season_id, "season_id");
+  await getSeries(request, seriesId);
+  await getSeason(request, seasonId);
+  const payload = {
+    series_id: seriesId,
+    season_id: seasonId,
+    episode_number: Number(body.episode_number),
+    title: toRequiredString(body.title, "title"),
+    description: toNullableString(body.description),
+    runtime: toNullableString(body.runtime),
+    thumbnail: toNullableString(body.thumbnail),
+    trailer: toNullableString(body.trailer),
+    video_url: toNullableString(body.video_url),
+    status: toRequiredString(body.status || "draft", "status"),
+    release_date: toNullableString(body.release_date),
+    published_at: toNullableString(body.published_at),
+  };
+  assertEnumValue(payload.status, episodeStatuses, "episode status");
+  const episode = await createDocument(request, collectionIds.episodes, payload);
+  await writeAuditLog(request, membership, req, {
+    action: "movie_created",
+    target_type: "episode",
+    target_id: episode.$id,
+    target_label: episode.title,
+    new_value_json: JSON.stringify(cloneForAudit(episode)),
+  });
+  return episode;
+};
+
+const updateEpisode = async ({ req, membership, request, episodeId }) => {
+  const currentEpisode = await getEpisode(request, episodeId);
+  const body = parseBody(req);
+  const payload = {
+    episode_number:
+      body.episode_number !== undefined ? Number(body.episode_number) : currentEpisode.episode_number,
+    title: body.title !== undefined ? toRequiredString(body.title, "title") : currentEpisode.title,
+    description:
+      body.description !== undefined ? toNullableString(body.description) : currentEpisode.description || null,
+    runtime: body.runtime !== undefined ? toNullableString(body.runtime) : currentEpisode.runtime || null,
+    thumbnail:
+      body.thumbnail !== undefined ? toNullableString(body.thumbnail) : currentEpisode.thumbnail || null,
+    trailer: body.trailer !== undefined ? toNullableString(body.trailer) : currentEpisode.trailer || null,
+    video_url:
+      body.video_url !== undefined ? toNullableString(body.video_url) : currentEpisode.video_url || null,
+    status: body.status !== undefined ? toRequiredString(body.status, "status") : currentEpisode.status,
+    release_date:
+      body.release_date !== undefined ? toNullableString(body.release_date) : currentEpisode.release_date || null,
+    published_at:
+      body.published_at !== undefined ? toNullableString(body.published_at) : currentEpisode.published_at || null,
+  };
+  assertEnumValue(payload.status, episodeStatuses, "episode status");
+  const episode = await updateDocument(request, collectionIds.episodes, episodeId, payload);
+  await writeAuditLog(request, membership, req, {
+    action: "movie_updated",
+    target_type: "episode",
+    target_id: episodeId,
+    target_label: currentEpisode.title,
+    old_value_json: JSON.stringify(cloneForAudit(currentEpisode)),
+    new_value_json: JSON.stringify(cloneForAudit(episode)),
+  });
+  return episode;
+};
+
+const deleteEpisode = async ({ req, membership, request, episodeId }) => {
+  const currentEpisode = await getEpisode(request, episodeId);
+  await deleteDocument(request, collectionIds.episodes, episodeId);
+  await writeAuditLog(request, membership, req, {
+    action: "movie_deleted",
+    target_type: "episode",
+    target_id: episodeId,
+    target_label: currentEpisode.title,
+    old_value_json: JSON.stringify(cloneForAudit(currentEpisode)),
+  });
+  return { success: true };
+};
+
+const publishEpisode = async ({ req, membership, request, episodeId }) => {
+  const body = parseBody(req);
+  const currentEpisode = await getEpisode(request, episodeId);
+  const nextStatus = toRequiredString(body.status || "published", "status");
+  assertEnumValue(nextStatus, episodeStatuses, "episode status");
+  const episode = await updateDocument(request, collectionIds.episodes, episodeId, {
+    status: nextStatus,
+    published_at: nextStatus === "published" ? new Date().toISOString() : currentEpisode.published_at || null,
+    release_date: body.release_date !== undefined ? toNullableString(body.release_date) : currentEpisode.release_date || null,
+  });
+  await writeAuditLog(request, membership, req, {
+    action: nextStatus === "published" ? "movie_published" : "movie_unpublished",
+    target_type: "episode",
+    target_id: episodeId,
+    target_label: currentEpisode.title,
+    old_value_json: JSON.stringify(cloneForAudit(currentEpisode)),
+    new_value_json: JSON.stringify(cloneForAudit(episode)),
+  });
+  return episode;
+};
+
 const beginUpload = async ({ req, membership, request }) => {
   const body = parseBody(req);
   const {
     movie_id: movieId,
+    series_id: seriesId,
+    season_id: seasonId,
+    episode_id: episodeId,
     asset_type: assetType,
     bucket,
     file_name: originalFileName,
@@ -1623,8 +2209,10 @@ const beginUpload = async ({ req, membership, request }) => {
     object_key: requestedObjectKey,
   } = body;
 
-  if (!movieId || !assetType || !originalFileName) {
-    const error = new Error("movie_id, asset_type, and file_name are required.");
+  if ((!movieId && !seriesId && !seasonId && !episodeId) || !assetType || !originalFileName) {
+    const error = new Error(
+      "An owner id (movie_id, series_id, season_id, or episode_id), asset_type, and file_name are required."
+    );
     error.statusCode = APPWRITE_BAD_REQUEST;
     throw error;
   }
@@ -1646,11 +2234,26 @@ const beginUpload = async ({ req, membership, request }) => {
     throw error;
   }
 
-  const movie = await getMovie(request, movieId);
+  const owner = await getUploadOwnerContext({
+    request,
+    movieId,
+    seriesId,
+    seasonId,
+    episodeId,
+  });
+  const assetCollectionId = getAssetCollectionIdForOwnerType(owner.ownerType);
+  const ownerPrimaryId =
+    owner.ownerType === "movie"
+      ? owner.movie.$id
+      : owner.ownerType === "series"
+        ? owner.series.$id
+        : owner.ownerType === "season"
+          ? owner.season.$id
+          : owner.episode.$id;
   const objectKey =
     requestedObjectKey ||
     buildFallbackObjectKey({
-      movieId,
+      movieId: ownerPrimaryId,
       assetType,
       fileName: originalFileName,
     });
@@ -1660,7 +2263,7 @@ const beginUpload = async ({ req, membership, request }) => {
     objectKey,
   });
   const shouldUseLargeFileUpload =
-    assetType === "main_video" &&
+    (assetType === "main_video" || assetType === "episode_video") &&
     Number.isFinite(Number(sizeBytes)) &&
     Number(sizeBytes) >= LARGE_FILE_UPLOAD_THRESHOLD_BYTES;
   let uploadTarget = null;
@@ -1699,11 +2302,17 @@ const beginUpload = async ({ req, membership, request }) => {
         });
   }
 
-  const existingAssets = await listDocuments(request, collectionIds.movieAssets);
+  const existingAssets = await listDocuments(request, assetCollectionId);
   const existingJobs = await listDocuments(request, collectionIds.processingJobs);
   const existingAsset = existingAssets.find(
     (item) =>
-      item.movie_id === movieId &&
+      (owner.ownerType === "movie"
+        ? item.movie_id === movieId
+        : owner.ownerType === "series"
+          ? item.series_id === seriesId && item.asset_owner_type === "series"
+          : owner.ownerType === "season"
+            ? item.season_id === seasonId && item.asset_owner_type === "season"
+            : item.episode_id === episodeId) &&
       item.asset_type === assetType &&
       item.temp_key === tempKey &&
       !item.final_key &&
@@ -1711,7 +2320,7 @@ const beginUpload = async ({ req, membership, request }) => {
   );
 
   const asset = existingAsset
-    ? await updateDocument(request, collectionIds.movieAssets, existingAsset.$id, {
+    ? await updateDocument(request, assetCollectionId, existingAsset.$id, {
         bucket: storage.tempBucketName,
         temp_key: tempKey,
         final_key: null,
@@ -1723,8 +2332,32 @@ const beginUpload = async ({ req, membership, request }) => {
         language: language || existingAsset.language || null,
         label: originalFileName,
       })
-    : await createDocument(request, collectionIds.movieAssets, {
-        movie_id: movieId,
+    : await createDocument(request, assetCollectionId, {
+        movie_id:
+          movieId ||
+          (owner.ownerType === "episode"
+            ? owner.episode.$id
+            : owner.ownerType === "season"
+              ? owner.season.$id
+              : owner.ownerType === "series"
+                ? owner.series.$id
+                : null),
+        series_id:
+          owner.ownerType === "series"
+            ? owner.series.$id
+            : owner.ownerType === "season"
+              ? owner.series.$id
+              : owner.ownerType === "episode"
+                ? owner.series.$id
+                : null,
+        season_id:
+          owner.ownerType === "season"
+            ? owner.season.$id
+            : owner.ownerType === "episode"
+              ? owner.season.$id
+              : null,
+        episode_id: owner.ownerType === "episode" ? owner.episode.$id : null,
+        asset_owner_type: owner.ownerType === "movie" ? "movie" : owner.ownerType,
         asset_type: assetType,
         bucket: storage.tempBucketName,
         temp_key: tempKey,
@@ -1749,7 +2382,31 @@ const beginUpload = async ({ req, membership, request }) => {
         input_asset_id: asset.$id,
       })
     : await createDocument(request, collectionIds.processingJobs, {
-        movie_id: movieId,
+        movie_id:
+          movieId ||
+          (owner.ownerType === "episode"
+            ? owner.episode.$id
+            : owner.ownerType === "season"
+              ? owner.season.$id
+              : owner.ownerType === "series"
+                ? owner.series.$id
+                : null),
+        series_id:
+          owner.ownerType === "series"
+            ? owner.series.$id
+            : owner.ownerType === "season"
+              ? owner.series.$id
+              : owner.ownerType === "episode"
+                ? owner.series.$id
+                : null,
+        season_id:
+          owner.ownerType === "season"
+            ? owner.season.$id
+            : owner.ownerType === "episode"
+              ? owner.season.$id
+              : null,
+        episode_id: owner.ownerType === "episode" ? owner.episode.$id : null,
+        entity_type: owner.ownerType,
         job_type: `${assetType}_upload`,
         status: "queued",
         input_asset_id: asset.$id,
@@ -1757,19 +2414,53 @@ const beginUpload = async ({ req, membership, request }) => {
         error_message: null,
       });
 
-  if (["draft", "processing_failed", "ready", "unpublished"].includes(movie.status)) {
-    await updateDocument(request, collectionIds.movies, movieId, {
+  if (owner.ownerType === "movie") {
+    if (["draft", "processing_failed", "ready", "unpublished"].includes(owner.movie.status)) {
+      await updateDocument(request, collectionIds.movies, movieId, {
+        status: "uploading",
+      });
+    }
+  } else if (owner.ownerType === "series") {
+    if (["draft", "unpublished"].includes(owner.series.status)) {
+      await updateDocument(request, collectionIds.series, owner.series.$id, {
+        status: "pending",
+      });
+    }
+  } else if (owner.ownerType === "season") {
+    if (["draft", "unpublished"].includes(owner.season.status)) {
+      await updateDocument(request, collectionIds.seasons, owner.season.$id, {
+        status: "pending",
+      });
+    }
+  } else if (["draft", "unpublished", "rejected"].includes(owner.episode.status)) {
+    await updateDocument(request, collectionIds.episodes, owner.episode.$id, {
       status: "uploading",
     });
   }
 
   await writeAuditLog(request, membership, req, {
     action: "upload_started",
-    target_type: "movie_asset",
+    target_type: getAssetAuditTargetType(owner.ownerType),
     target_id: asset.$id,
-    target_label: `${movie.title} - ${originalFileName}`,
+    target_label: `${ownerPrimaryId} - ${originalFileName}`,
     new_value_json: JSON.stringify({
-      movie_id: movieId,
+      movie_id: movieId || null,
+      series_id:
+        owner.ownerType === "series"
+          ? owner.series.$id
+          : owner.ownerType === "season"
+            ? owner.series.$id
+            : owner.ownerType === "episode"
+              ? owner.series.$id
+              : null,
+      season_id:
+        owner.ownerType === "season"
+          ? owner.season.$id
+          : owner.ownerType === "episode"
+            ? owner.season.$id
+            : null,
+      episode_id: owner.ownerType === "episode" ? owner.episode.$id : null,
+      entity_type: owner.ownerType,
       asset_type: assetType,
       bucket: storage.tempBucketName,
       temp_key: tempKey,
@@ -1862,11 +2553,15 @@ const completeUpload = async ({ req, membership, request }) => {
     throw error;
   }
 
-  const currentAsset = await getDocument(request, collectionIds.movieAssets, assetId);
+  const assetContext = await getStoredAssetContext(request, assetId);
+  const currentAsset = assetContext.asset;
   const currentJob = await getDocument(request, collectionIds.processingJobs, jobId);
-  const currentMovie = await getMovie(request, currentAsset.movie_id);
+  const currentMovie =
+    assetContext.ownerType === "movie" ? await getMovie(request, currentAsset.movie_id) : null;
+  const currentEpisode =
+    assetContext.ownerType === "episode" ? await getEpisode(request, currentAsset.episode_id) : null;
 
-  const asset = await updateDocument(request, collectionIds.movieAssets, assetId, {
+  const asset = await updateDocument(request, assetContext.assetCollectionId, assetId, {
     processing_status: "uploaded",
     mime_type: contentType || currentAsset.mime_type || null,
     size_bytes:
@@ -1879,6 +2574,7 @@ const completeUpload = async ({ req, membership, request }) => {
   });
 
   const movie =
+    currentMovie &&
     ["draft", "uploading", "processing_failed", "ready", "unpublished"].includes(
       currentMovie.status
     )
@@ -1886,10 +2582,17 @@ const completeUpload = async ({ req, membership, request }) => {
           status: "processing",
         })
       : currentMovie;
+  const episode =
+    currentEpisode &&
+    ["draft", "uploading", "unpublished", "rejected"].includes(currentEpisode.status)
+      ? await updateDocument(request, collectionIds.episodes, currentEpisode.$id, {
+          status: "processing",
+        })
+      : currentEpisode;
 
   await writeAuditLog(request, membership, req, {
     action: "upload_completed",
-    target_type: "movie_asset",
+    target_type: getAssetAuditTargetType(assetContext.ownerType),
     target_id: assetId,
     target_label: currentAsset.label || currentAsset.asset_type,
     old_value_json: JSON.stringify({
@@ -1904,6 +2607,7 @@ const completeUpload = async ({ req, membership, request }) => {
       content_sha1: contentSha1 || null,
       backblaze_file_id: backblazeFileId || null,
       uploaded_bytes: Number.isFinite(Number(uploadedBytes)) ? Number(uploadedBytes) : null,
+      episode_status: episode?.status || null,
     }),
   });
 
@@ -1912,6 +2616,7 @@ const completeUpload = async ({ req, membership, request }) => {
     asset,
     job,
     movie,
+    episode,
     message: "Raw upload recorded. Asset is queued for backend processing.",
   };
 };
@@ -1938,9 +2643,13 @@ const completeLargeUpload = async ({ req, membership, request }) => {
     throw error;
   }
 
-  const currentAsset = await getDocument(request, collectionIds.movieAssets, assetId);
+  const assetContext = await getStoredAssetContext(request, assetId);
+  const currentAsset = assetContext.asset;
   const currentJob = await getDocument(request, collectionIds.processingJobs, jobId);
-  const currentMovie = await getMovie(request, currentAsset.movie_id);
+  const currentMovie =
+    assetContext.ownerType === "movie" ? await getMovie(request, currentAsset.movie_id) : null;
+  const currentEpisode =
+    assetContext.ownerType === "episode" ? await getEpisode(request, currentAsset.episode_id) : null;
   const storage = getStorageConfig();
   let finishedFile = null;
 
@@ -1989,7 +2698,7 @@ const completeLargeUpload = async ({ req, membership, request }) => {
     });
   }
 
-  const asset = await updateDocument(request, collectionIds.movieAssets, assetId, {
+  const asset = await updateDocument(request, assetContext.assetCollectionId, assetId, {
     processing_status: "uploaded",
     mime_type: contentType || currentAsset.mime_type || null,
     size_bytes:
@@ -2002,6 +2711,7 @@ const completeLargeUpload = async ({ req, membership, request }) => {
   });
 
   const movie =
+    currentMovie &&
     ["draft", "uploading", "processing_failed", "ready", "unpublished"].includes(
       currentMovie.status
     )
@@ -2009,10 +2719,17 @@ const completeLargeUpload = async ({ req, membership, request }) => {
           status: "processing",
         })
       : currentMovie;
+  const episode =
+    currentEpisode &&
+    ["draft", "uploading", "unpublished", "rejected"].includes(currentEpisode.status)
+      ? await updateDocument(request, collectionIds.episodes, currentEpisode.$id, {
+          status: "processing",
+        })
+      : currentEpisode;
 
   await writeAuditLog(request, membership, req, {
     action: "upload_completed",
-    target_type: "movie_asset",
+    target_type: getAssetAuditTargetType(assetContext.ownerType),
     target_id: assetId,
     target_label: currentAsset.label || currentAsset.asset_type,
     old_value_json: JSON.stringify({
@@ -2031,6 +2748,7 @@ const completeLargeUpload = async ({ req, membership, request }) => {
       uploaded_bytes: Number.isFinite(Number(uploadedBytes)) ? Number(uploadedBytes) : null,
       upload_mode: "large",
       storage_provider: storage.provider,
+      episode_status: episode?.status || null,
     }),
   });
 
@@ -2039,6 +2757,7 @@ const completeLargeUpload = async ({ req, membership, request }) => {
     asset,
     job,
     movie,
+    episode,
     message: "Large upload recorded. Asset is queued for backend processing.",
   };
 };
@@ -2125,8 +2844,15 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
   }
 
   const resolvedJob = await getDocument(request, collectionIds.processingJobs, jobId);
-  const asset = await getDocument(request, collectionIds.movieAssets, assetId);
-  const movie = await getMovie(request, asset.movie_id);
+  const assetContext = await getStoredAssetContext(request, assetId);
+  const asset = assetContext.asset;
+  const owner = await getUploadOwnerContext({
+    request,
+    movieId: asset.movie_id || null,
+    seriesId: asset.series_id || null,
+    seasonId: asset.season_id || null,
+    episodeId: asset.episode_id || null,
+  });
 
   if (resolvedJob.input_asset_id && resolvedJob.input_asset_id !== assetId) {
     const error = new Error("The provided asset_id does not match the processing job.");
@@ -2163,7 +2889,7 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
     status: "running",
     error_message: null,
   });
-  await updateDocument(request, collectionIds.movieAssets, asset.$id, {
+  await updateDocument(request, assetContext.assetCollectionId, asset.$id, {
     processing_status: "processing",
   });
 
@@ -2172,7 +2898,10 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
     let finalKey = null;
     const destinationObjectKey = buildFinalObjectKey({
       assetType: asset.asset_type,
-      movieId: movie.$id,
+      movieId: owner.movie?.$id,
+      seriesId: owner.series?.$id,
+      seasonNumber: owner.season?.season_number,
+      episodeNumber: owner.episode?.episode_number,
       tempObjectKey: tempLocation.objectKey,
     });
 
@@ -2260,7 +2989,7 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
       });
     }
 
-    const finalizedAsset = await updateDocument(request, collectionIds.movieAssets, asset.$id, {
+    const finalizedAsset = await updateDocument(request, assetContext.assetCollectionId, asset.$id, {
       bucket: destination.bucketName,
       final_key: finalKey,
       processing_status: "ready",
@@ -2279,20 +3008,59 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
       output_asset_id: asset.$id,
     });
 
-    const moviePatch = buildMovieAssetPatch({
-      assetType: asset.asset_type,
-      finalKey,
-      currentMovie: movie,
-      tempBucketName: storage.tempBucketName,
-    });
+    const moviePatch =
+      owner.ownerType === "movie"
+        ? buildMovieAssetPatch({
+            assetType: asset.asset_type,
+            finalKey,
+            currentMovie: owner.movie,
+            tempBucketName: storage.tempBucketName,
+          })
+        : {};
+    const seasonPatch =
+      owner.ownerType === "season"
+        ? buildSeasonAssetPatch({
+            assetType: asset.asset_type,
+            finalKey,
+            currentSeason: owner.season,
+          })
+        : {};
+    const seriesPatch =
+      owner.ownerType === "series"
+        ? buildSeriesAssetPatch({
+            assetType: asset.asset_type,
+            finalKey,
+            currentSeries: owner.series,
+          })
+        : {};
+    const episodePatch =
+      owner.ownerType === "episode"
+        ? buildEpisodeAssetPatch({
+            assetType: asset.asset_type,
+            finalKey,
+            currentEpisode: owner.episode,
+          })
+        : {};
     const updatedMovie =
-      Object.keys(moviePatch).length > 0
-        ? await updateDocument(request, collectionIds.movies, movie.$id, moviePatch)
-        : movie;
+      owner.ownerType === "movie" && Object.keys(moviePatch).length > 0
+        ? await updateDocument(request, collectionIds.movies, owner.movie.$id, moviePatch)
+        : owner.movie || null;
+    const updatedSeries =
+      owner.ownerType === "series" && Object.keys(seriesPatch).length > 0
+        ? await updateDocument(request, collectionIds.series, owner.series.$id, seriesPatch)
+        : owner.series || null;
+    const updatedSeason =
+      owner.ownerType === "season" && Object.keys(seasonPatch).length > 0
+        ? await updateDocument(request, collectionIds.seasons, owner.season.$id, seasonPatch)
+        : owner.season || null;
+    const updatedEpisode =
+      owner.ownerType === "episode" && Object.keys(episodePatch).length > 0
+        ? await updateDocument(request, collectionIds.episodes, owner.episode.$id, episodePatch)
+        : owner.episode || null;
 
     await writeAuditLog(request, membership, req, {
       action: "processing_completed",
-      target_type: "movie_asset",
+      target_type: getAssetAuditTargetType(assetContext.ownerType),
       target_id: asset.$id,
       target_label: asset.label || asset.asset_type,
       old_value_json: JSON.stringify({
@@ -2313,7 +3081,10 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
           asset.mime_type ||
           null,
         content_sha1: providedContentSha1 || null,
-        movie_status: updatedMovie.status,
+        movie_status: updatedMovie?.status || null,
+        series_status: updatedSeries?.status || null,
+        season_status: updatedSeason?.status || null,
+        episode_status: updatedEpisode?.status || null,
         storage_provider: storage.provider,
       }),
     });
@@ -2323,17 +3094,23 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
       asset: finalizedAsset,
       job: completedJob,
       movie: updatedMovie,
+      series: updatedSeries,
+      season: updatedSeason,
+      episode: updatedEpisode,
     };
   } catch (caughtError) {
     await updateDocument(request, collectionIds.processingJobs, resolvedJob.$id, {
       status: "failed",
       error_message: caughtError?.message || "Asset finalization failed.",
     }).catch(() => null);
-    await updateDocument(request, collectionIds.movieAssets, asset.$id, {
+    await updateDocument(request, assetContext.assetCollectionId, asset.$id, {
       processing_status: "failed",
     }).catch(() => null);
-    if (["draft", "uploading", "processing", "ready", "unpublished"].includes(movie.status)) {
-      await updateDocument(request, collectionIds.movies, movie.$id, {
+    if (
+      owner.ownerType === "movie" &&
+      ["draft", "uploading", "processing", "ready", "unpublished"].includes(owner.movie.status)
+    ) {
+      await updateDocument(request, collectionIds.movies, owner.movie.$id, {
         status: "processing_failed",
       }).catch(() => null);
     }
@@ -2343,14 +3120,34 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
 
 const completeHlsProcessing = async ({ req, membership, request }) => {
   const body = parseBody(req);
-  const movieId = toRequiredString(body.movie_id, "movie_id");
+  const movieId = toNullableString(body.movie_id);
+  const episodeId = toNullableString(body.episode_id);
+  if (!movieId && !episodeId) {
+    const error = new Error("movie_id or episode_id is required.");
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+  const owner = await getUploadOwnerContext({
+    request,
+    movieId,
+    episodeId,
+    seriesId: null,
+    seasonId: null,
+  });
   const manifestKey =
-    toNullableString(body.manifest_key) || `movies/${movieId}/master.m3u8`;
+    toNullableString(body.manifest_key) ||
+    (episodeId
+      ? `series/${owner.series.$id}/season-${padNumber(owner.season.season_number)}/episode-${padNumber(
+          owner.episode.episode_number
+        )}/master.m3u8`
+      : `movies/${movieId}/master.m3u8`);
   const providedAssetId = toNullableString(body.asset_id);
   const providedJobId = toNullableString(body.job_id);
   const storage = getStorageConfig();
-  const destination = getDestinationForAssetType(storage, "hls_stream");
-  const movie = await getMovie(request, movieId);
+  const destination = getDestinationForAssetType(
+    storage,
+    episodeId ? "episode_hls_stream" : "hls_stream"
+  );
 
   if (storage.provider !== "r2") {
     const error = new Error("HLS stream completion currently requires R2 storage.");
@@ -2379,18 +3176,29 @@ const completeHlsProcessing = async ({ req, membership, request }) => {
 
   const existingAssets = providedAssetId
     ? []
-    : await listDocuments(request, collectionIds.movieAssets);
+    : await listDocuments(
+        request,
+        episodeId ? collectionIds.episodeAssets : collectionIds.movieAssets
+      );
   const existingAsset = providedAssetId
-    ? await getDocument(request, collectionIds.movieAssets, providedAssetId)
+    ? await getDocument(
+        request,
+        episodeId ? collectionIds.episodeAssets : collectionIds.movieAssets,
+        providedAssetId
+      )
     : existingAssets.find(
         (item) =>
-          item.movie_id === movieId &&
-          item.asset_type === "hls_stream" &&
+          (episodeId ? item.episode_id === episodeId : item.movie_id === movieId) &&
+          item.asset_type === (episodeId ? "episode_hls_stream" : "hls_stream") &&
           item.final_key === finalKey
       );
 
   const asset = existingAsset
-    ? await updateDocument(request, collectionIds.movieAssets, existingAsset.$id, {
+    ? await updateDocument(
+        request,
+        episodeId ? collectionIds.episodeAssets : collectionIds.movieAssets,
+        existingAsset.$id,
+        {
         bucket: destination.bucketName,
         temp_key: null,
         final_key: finalKey,
@@ -2398,9 +3206,13 @@ const completeHlsProcessing = async ({ req, membership, request }) => {
         mime_type: "application/vnd.apple.mpegurl",
         label: "HLS master manifest",
       })
-    : await createDocument(request, collectionIds.movieAssets, {
-        movie_id: movieId,
-        asset_type: "hls_stream",
+    : await createDocument(request, episodeId ? collectionIds.episodeAssets : collectionIds.movieAssets, {
+        movie_id: episodeId || movieId,
+        series_id: episodeId ? owner.series.$id : null,
+        season_id: episodeId ? owner.season.$id : null,
+        episode_id: episodeId || null,
+        asset_owner_type: episodeId ? null : "movie",
+        asset_type: episodeId ? "episode_hls_stream" : "hls_stream",
         bucket: destination.bucketName,
         temp_key: null,
         final_key: finalKey,
@@ -2423,35 +3235,50 @@ const completeHlsProcessing = async ({ req, membership, request }) => {
         error_message: null,
       })
     : await createDocument(request, collectionIds.processingJobs, {
-        movie_id: movieId,
-        job_type: "hls_transcode",
+        movie_id: episodeId || movieId,
+        series_id: episodeId ? owner.series.$id : null,
+        season_id: episodeId ? owner.season.$id : null,
+        episode_id: episodeId || null,
+        entity_type: episodeId ? "episode" : "movie",
+        job_type: episodeId ? "episode_hls_transcode" : "hls_transcode",
         status: "completed",
         input_asset_id: null,
         output_asset_id: asset.$id,
         error_message: null,
       });
 
-  const moviePatch = buildMovieAssetPatch({
-    assetType: "hls_stream",
-    finalKey,
-    currentMovie: movie,
-    tempBucketName: storage.tempBucketName,
-  });
-  const updatedMovie =
-    Object.keys(moviePatch).length > 0
-      ? await updateDocument(request, collectionIds.movies, movie.$id, moviePatch)
-      : movie;
+  const updatedMovie = episodeId
+    ? null
+    : await updateDocument(request, collectionIds.movies, owner.movie.$id, {
+        ...buildMovieAssetPatch({
+          assetType: "hls_stream",
+          finalKey,
+          currentMovie: owner.movie,
+          tempBucketName: storage.tempBucketName,
+        }),
+      });
+  const updatedEpisode = episodeId
+    ? await updateDocument(request, collectionIds.episodes, owner.episode.$id, {
+        ...buildEpisodeAssetPatch({
+          assetType: "episode_hls_stream",
+          finalKey,
+          currentEpisode: owner.episode,
+        }),
+      })
+    : null;
 
   await writeAuditLog(request, membership, req, {
     action: "hls_processing_completed",
-    target_type: "movie_asset",
+    target_type: episodeId ? "episode_asset" : "movie_asset",
     target_id: asset.$id,
-    target_label: `${movie.title} - HLS stream`,
+    target_label: `${episodeId ? owner.episode.title : owner.movie.title} - HLS stream`,
     new_value_json: JSON.stringify({
-      movie_id: movieId,
+      movie_id: movieId || null,
+      episode_id: episodeId || null,
       manifest_key: manifestKey,
       final_key: finalKey,
-      movie_status: updatedMovie.status,
+      movie_status: updatedMovie?.status || null,
+      episode_status: updatedEpisode?.status || null,
       storage_provider: storage.provider,
     }),
   });
@@ -2462,6 +3289,7 @@ const completeHlsProcessing = async ({ req, membership, request }) => {
     asset,
     job,
     movie: updatedMovie,
+    episode: updatedEpisode,
   };
 };
 
@@ -3021,6 +3849,11 @@ const routeRequest = async ({ req, res, context }) => {
     return jsonResponse(res, await createMovie({ ...context, req }));
   }
 
+  if (method === "POST" && path === "/series") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await createSeries({ ...context, req }));
+  }
+
   let match = path.match(/^\/movies\/([^/]+)$/);
   if (match && method === "PATCH") {
     assertCapability(context.capabilities, "movies.manage");
@@ -3029,6 +3862,65 @@ const routeRequest = async ({ req, res, context }) => {
   if (match && method === "DELETE") {
     assertCapability(context.capabilities, "movies.manage");
     return jsonResponse(res, await deleteMovie({ ...context, req, movieId: match[1] }));
+  }
+
+  match = path.match(/^\/series\/([^/]+)$/);
+  if (match && method === "PATCH") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await updateSeries({ ...context, req, seriesId: match[1] }));
+  }
+  if (match && method === "DELETE") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await deleteSeries({ ...context, req, seriesId: match[1] }));
+  }
+
+  match = path.match(/^\/series\/([^/]+)\/publish$/);
+  if (match && method === "POST") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await publishSeries({ ...context, req, seriesId: match[1] }));
+  }
+
+  match = path.match(/^\/series\/([^/]+)\/seasons$/);
+  if (match && method === "POST") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await createSeason({ ...context, req, seriesId: match[1] }));
+  }
+
+  match = path.match(/^\/seasons\/([^/]+)$/);
+  if (match && method === "PATCH") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await updateSeason({ ...context, req, seasonId: match[1] }));
+  }
+  if (match && method === "DELETE") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await deleteSeason({ ...context, req, seasonId: match[1] }));
+  }
+
+  match = path.match(/^\/seasons\/([^/]+)\/publish$/);
+  if (match && method === "POST") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await publishSeason({ ...context, req, seasonId: match[1] }));
+  }
+
+  if (method === "POST" && path === "/episodes") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await createEpisode({ ...context, req }));
+  }
+
+  match = path.match(/^\/episodes\/([^/]+)$/);
+  if (match && method === "PATCH") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await updateEpisode({ ...context, req, episodeId: match[1] }));
+  }
+  if (match && method === "DELETE") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await deleteEpisode({ ...context, req, episodeId: match[1] }));
+  }
+
+  match = path.match(/^\/episodes\/([^/]+)\/publish$/);
+  if (match && method === "POST") {
+    assertCapability(context.capabilities, "series.manage");
+    return jsonResponse(res, await publishEpisode({ ...context, req, episodeId: match[1] }));
   }
 
   match = path.match(/^\/movies\/([^/]+)\/review$/);

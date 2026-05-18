@@ -90,6 +90,66 @@ const collectionDefinitions = [
   },
   {
     id:
+      process.env.APPWRITE_SERIES_COLLECTION_ID ||
+      process.env.VITE_APPWRITE_SERIES_COLLECTION_ID ||
+      "series",
+    name: "Series",
+    permissions: collectionPermissions.publicReadAdminWrite,
+    attributes: [
+      { type: "string", key: "title", size: 255, required: true },
+      { type: "string", key: "description", size: 5000, required: true },
+      { type: "string", key: "poster", size: 2048, required: true },
+      { type: "string", key: "banner", size: 2048, required: false },
+      { type: "string", key: "genres", size: 100, required: false, array: true },
+      { type: "string", key: "language", size: 100, required: false },
+      { type: "string", key: "country", size: 100, required: false },
+      { type: "string", key: "age_rating", size: 50, required: false },
+      { type: "string", key: "creator_user_id", size: 100, required: false },
+      { type: "string", key: "status", size: 50, required: true },
+      { type: "string", key: "release_schedule", size: 100, required: false },
+      { type: "float", key: "rating", required: false, min: 0, max: 10 },
+    ],
+  },
+  {
+    id:
+      process.env.APPWRITE_SEASONS_COLLECTION_ID ||
+      process.env.VITE_APPWRITE_SEASONS_COLLECTION_ID ||
+      "seasons",
+    name: "Seasons",
+    permissions: collectionPermissions.publicReadAdminWrite,
+    attributes: [
+      { type: "string", key: "series_id", size: 100, required: true },
+      { type: "integer", key: "season_number", required: true, min: 1 },
+      { type: "string", key: "title", size: 255, required: true },
+      { type: "string", key: "description", size: 5000, required: false },
+      { type: "string", key: "poster", size: 2048, required: false },
+      { type: "string", key: "status", size: 50, required: true },
+    ],
+  },
+  {
+    id:
+      process.env.APPWRITE_EPISODES_COLLECTION_ID ||
+      process.env.VITE_APPWRITE_EPISODES_COLLECTION_ID ||
+      "episodes",
+    name: "Episodes",
+    permissions: collectionPermissions.publicReadAdminWrite,
+    attributes: [
+      { type: "string", key: "series_id", size: 100, required: true },
+      { type: "string", key: "season_id", size: 100, required: true },
+      { type: "integer", key: "episode_number", required: true, min: 1 },
+      { type: "string", key: "title", size: 255, required: true },
+      { type: "string", key: "description", size: 5000, required: false },
+      { type: "string", key: "runtime", size: 50, required: false },
+      { type: "string", key: "thumbnail", size: 2048, required: false },
+      { type: "string", key: "trailer", size: 2048, required: false },
+      { type: "string", key: "video_url", size: 2048, required: false },
+      { type: "string", key: "status", size: 50, required: true },
+      { type: "string", key: "release_date", size: 100, required: false },
+      { type: "string", key: "published_at", size: 100, required: false },
+    ],
+  },
+  {
+    id:
       process.env.APPWRITE_ADMIN_MEMBERSHIPS_COLLECTION_ID ||
       process.env.VITE_APPWRITE_ADMIN_MEMBERSHIPS_COLLECTION_ID ||
       "admin_memberships",
@@ -150,7 +210,10 @@ const collectionDefinitions = [
     name: "Movie Assets",
     permissions: collectionPermissions.adminReadWrite,
     attributes: [
-      { type: "string", key: "movie_id", size: 100, required: true },
+      { type: "string", key: "movie_id", size: 100, required: false },
+      { type: "string", key: "series_id", size: 100, required: false },
+      { type: "string", key: "season_id", size: 100, required: false },
+      { type: "string", key: "asset_owner_type", size: 50, required: false },
       { type: "string", key: "asset_type", size: 50, required: true },
       { type: "string", key: "bucket", size: 100, required: true },
       { type: "string", key: "temp_key", size: 2048, required: false },
@@ -165,6 +228,44 @@ const collectionDefinitions = [
   },
   {
     id:
+      process.env.APPWRITE_EPISODE_ASSETS_COLLECTION_ID ||
+      process.env.VITE_APPWRITE_EPISODE_ASSETS_COLLECTION_ID ||
+      "episode_assets",
+    name: "Episode Assets",
+    permissions: collectionPermissions.adminReadWrite,
+    attributes: [
+      { type: "string", key: "series_id", size: 100, required: true },
+      { type: "string", key: "season_id", size: 100, required: true },
+      { type: "string", key: "episode_id", size: 100, required: true },
+      { type: "string", key: "asset_type", size: 50, required: true },
+      { type: "string", key: "bucket", size: 100, required: true },
+      { type: "string", key: "temp_key", size: 2048, required: false },
+      { type: "string", key: "final_key", size: 2048, required: false },
+      { type: "string", key: "processing_status", size: 50, required: true },
+      { type: "string", key: "mime_type", size: 255, required: false },
+      { type: "integer", key: "size_bytes", required: false, min: 0 },
+      { type: "integer", key: "duration_seconds", required: false, min: 0 },
+      { type: "string", key: "language", size: 100, required: false },
+      { type: "string", key: "label", size: 255, required: false },
+    ],
+  },
+  {
+    id:
+      process.env.APPWRITE_EPISODE_SUBTITLES_COLLECTION_ID ||
+      process.env.VITE_APPWRITE_EPISODE_SUBTITLES_COLLECTION_ID ||
+      "episode_subtitles",
+    name: "Episode Subtitles",
+    permissions: collectionPermissions.adminReadWrite,
+    attributes: [
+      { type: "string", key: "episode_id", size: 100, required: true },
+      { type: "string", key: "language", size: 100, required: true },
+      { type: "string", key: "asset_id", size: 100, required: false },
+      { type: "string", key: "label", size: 255, required: false },
+      { type: "boolean", key: "is_default", required: false },
+    ],
+  },
+  {
+    id:
       process.env.APPWRITE_PROCESSING_JOBS_COLLECTION_ID ||
       process.env.VITE_APPWRITE_PROCESSING_JOBS_COLLECTION_ID ||
       "processing_jobs",
@@ -172,6 +273,10 @@ const collectionDefinitions = [
     permissions: collectionPermissions.adminReadWrite,
     attributes: [
       { type: "string", key: "movie_id", size: 100, required: true },
+      { type: "string", key: "series_id", size: 100, required: false },
+      { type: "string", key: "season_id", size: 100, required: false },
+      { type: "string", key: "episode_id", size: 100, required: false },
+      { type: "string", key: "entity_type", size: 50, required: false },
       { type: "string", key: "job_type", size: 100, required: true },
       { type: "string", key: "status", size: 50, required: true },
       { type: "string", key: "input_asset_id", size: 100, required: false },
@@ -199,6 +304,37 @@ const collectionDefinitions = [
       { type: "string", key: "rejection_reason_code", size: 100, required: false },
       { type: "string", key: "rejection_reason_note", size: 2000, required: false },
       { type: "string", key: "publish_at", size: 100, required: false },
+    ],
+  },
+  {
+    id:
+      process.env.APPWRITE_SERIES_REVIEWS_COLLECTION_ID ||
+      process.env.VITE_APPWRITE_SERIES_REVIEWS_COLLECTION_ID ||
+      "series_reviews",
+    name: "Series Reviews",
+    permissions: collectionPermissions.adminReadWrite,
+    attributes: [
+      { type: "string", key: "series_id", size: 100, required: true },
+      { type: "string", key: "reviewer_user_id", size: 100, required: true },
+      { type: "string", key: "decision", size: 50, required: true },
+      { type: "string", key: "rejection_reason_code", size: 100, required: false },
+      { type: "string", key: "rejection_reason_note", size: 2000, required: false },
+      { type: "string", key: "publish_at", size: 100, required: false },
+    ],
+  },
+  {
+    id:
+      process.env.APPWRITE_PROFILE_EPISODE_WATCH_HISTORY_COLLECTION_ID ||
+      process.env.VITE_APPWRITE_PROFILE_EPISODE_WATCH_HISTORY_COLLECTION_ID ||
+      "profile_episode_watch_history",
+    name: "Profile Episode Watch History",
+    permissions: collectionPermissions.adminReadWrite,
+    attributes: [
+      { type: "string", key: "user_id", size: 100, required: true },
+      { type: "string", key: "episode_id", size: 100, required: true },
+      { type: "integer", key: "progress_seconds", required: false, min: 0 },
+      { type: "boolean", key: "completed", required: false },
+      { type: "string", key: "last_watched_at", size: 100, required: false },
     ],
   },
   {

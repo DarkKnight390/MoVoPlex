@@ -170,3 +170,7 @@ The initializer is additive and will create missing attributes without deleting 
 - Existing legacy `b2://...` refs can still be signed through the fallback code path, but new uploads should use `r2://...`.
 - Large movie uploads require the browser CORS policy on the temp bucket to allow multipart part uploads.
 - If you previously stored public Backblaze bucket base URLs in `.env.local`, remove them or set `VITE_STORAGE_PROVIDER=r2`.
+
+
+$env:NODE_OPTIONS='--use-system-ca'
+npm run hls:auto:watch

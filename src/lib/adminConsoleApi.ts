@@ -5,12 +5,19 @@ import {
   type AppwriteAuditLogDocument,
   type AppwriteCategoryDocument,
   type AppwriteCreatorProfileDocument,
+  type AppwriteEpisodeAssetDocument,
+  type AppwriteEpisodeDocument,
+  type AppwriteEpisodeSubtitleDocument,
   type AppwriteHomepageRowDocument,
   type AppwriteHomepageRowItemDocument,
   type AppwriteMovieAssetDocument,
   type AppwriteMovieDocument,
   type AppwriteMovieReviewDocument,
   type AppwriteProcessingJobDocument,
+  type AppwriteProfileEpisodeWatchHistoryDocument,
+  type AppwriteSeasonDocument,
+  type AppwriteSeriesDocument,
+  type AppwriteSeriesReviewDocument,
   type AppwriteSubscriberProfileDocument,
 } from "@/integrations/appwrite/types";
 import { defaultHomepageRowNames, type AdminCapability } from "@/types/admin";
@@ -27,7 +34,7 @@ export type AdminUploadTarget = {
   large_file_id?: string | null;
   part_size_bytes?: number | null;
   multipart_upload_id?: string | null;
-  asset: AppwriteMovieAssetDocument;
+  asset: AppwriteMovieAssetDocument | AppwriteEpisodeAssetDocument;
   job: AppwriteProcessingJobDocument;
 };
 
@@ -103,16 +110,37 @@ const executeAdminConsole = async <TResult>(
   );
 
   const responseText = execution.responseBody || execution.response || "";
+  const responseStatusCode = Number(execution.responseStatusCode || 0);
 
-  if (execution.status === "failed") {
-    throw new Error(responseText || "Admin console function execution failed.");
+  if (execution.status === "failed" || responseStatusCode >= 400) {
+    let errorMessage = responseText || execution.errors || "Admin console function execution failed.";
+
+    try {
+      const parsed = responseText ? JSON.parse(responseText) : null;
+      if (parsed && typeof parsed === "object") {
+        errorMessage =
+          String(
+            (parsed as { error?: unknown; message?: unknown }).error ||
+              (parsed as { error?: unknown; message?: unknown }).message ||
+              errorMessage
+          ) || errorMessage;
+      }
+    } catch {
+      // Keep the raw response text when the function returned plain text or HTML.
+    }
+
+    throw new Error(errorMessage);
   }
 
   if (!responseText) {
     return null as TResult;
   }
 
-  return JSON.parse(responseText) as TResult;
+  try {
+    return JSON.parse(responseText) as TResult;
+  } catch {
+    throw new Error("Admin console function returned a non-JSON response.");
+  }
 };
 
 const resolveUploadProvider = (target: AdminUploadTarget) => {
@@ -368,6 +396,45 @@ export const adminConsoleApi = {
 
     return response.documents as AppwriteMovieDocument[];
   },
+  async listSeries() {
+    if (!databases) {
+      throw getDatabaseError();
+    }
+
+    const response = await databases.listDocuments(
+      appwriteConfig.databaseId,
+      appwriteConfig.collections.series,
+      [Query.orderDesc("$updatedAt")]
+    );
+
+    return response.documents as AppwriteSeriesDocument[];
+  },
+  async listSeasons() {
+    if (!databases) {
+      throw getDatabaseError();
+    }
+
+    const response = await databases.listDocuments(
+      appwriteConfig.databaseId,
+      appwriteConfig.collections.seasons,
+      [Query.orderAsc("season_number"), Query.orderDesc("$updatedAt")]
+    );
+
+    return response.documents as AppwriteSeasonDocument[];
+  },
+  async listEpisodes() {
+    if (!databases) {
+      throw getDatabaseError();
+    }
+
+    const response = await databases.listDocuments(
+      appwriteConfig.databaseId,
+      appwriteConfig.collections.episodes,
+      [Query.orderAsc("episode_number"), Query.orderDesc("$updatedAt")]
+    );
+
+    return response.documents as AppwriteEpisodeDocument[];
+  },
   async listPendingMovies() {
     if (!databases) {
       throw getDatabaseError();
@@ -394,6 +461,19 @@ export const adminConsoleApi = {
 
     return response.documents as AppwriteMovieAssetDocument[];
   },
+  async listEpisodeAssets() {
+    if (!databases) {
+      throw getDatabaseError();
+    }
+
+    const response = await databases.listDocuments(
+      appwriteConfig.databaseId,
+      appwriteConfig.collections.episodeAssets,
+      [Query.orderDesc("$updatedAt")]
+    );
+
+    return response.documents as AppwriteEpisodeAssetDocument[];
+  },
   async listProcessingJobs() {
     if (!databases) {
       throw getDatabaseError();
@@ -419,6 +499,45 @@ export const adminConsoleApi = {
     );
 
     return response.documents as AppwriteMovieReviewDocument[];
+  },
+  async listSeriesReviews() {
+    if (!databases) {
+      throw getDatabaseError();
+    }
+
+    const response = await databases.listDocuments(
+      appwriteConfig.databaseId,
+      appwriteConfig.collections.seriesReviews,
+      [Query.orderDesc("$updatedAt")]
+    );
+
+    return response.documents as AppwriteSeriesReviewDocument[];
+  },
+  async listEpisodeSubtitles() {
+    if (!databases) {
+      throw getDatabaseError();
+    }
+
+    const response = await databases.listDocuments(
+      appwriteConfig.databaseId,
+      appwriteConfig.collections.episodeSubtitles,
+      [Query.orderDesc("$updatedAt")]
+    );
+
+    return response.documents as AppwriteEpisodeSubtitleDocument[];
+  },
+  async listProfileEpisodeWatchHistory() {
+    if (!databases) {
+      throw getDatabaseError();
+    }
+
+    const response = await databases.listDocuments(
+      appwriteConfig.databaseId,
+      appwriteConfig.collections.profileEpisodeWatchHistory,
+      [Query.orderDesc("$updatedAt")]
+    );
+
+    return response.documents as AppwriteProfileEpisodeWatchHistoryDocument[];
   },
   async listCreators() {
     if (!databases) {
@@ -535,6 +654,9 @@ export const adminConsoleApi = {
   createMovie(payload: Record<string, unknown>) {
     return executeAdminConsole<AppwriteMovieDocument>("/movies", ExecutionMethod.POST, payload);
   },
+  createSeries(payload: Record<string, unknown>) {
+    return executeAdminConsole<AppwriteSeriesDocument>("/series", ExecutionMethod.POST, payload);
+  },
   updateMovie(movieId: string, payload: Record<string, unknown>) {
     return executeAdminConsole<AppwriteMovieDocument>(
       `/movies/${movieId}`,
@@ -546,6 +668,80 @@ export const adminConsoleApi = {
     return executeAdminConsole<{ success: boolean }>(
       `/movies/${movieId}`,
       ExecutionMethod.DELETE
+    );
+  },
+  updateSeries(seriesId: string, payload: Record<string, unknown>) {
+    return executeAdminConsole<AppwriteSeriesDocument>(
+      `/series/${seriesId}`,
+      ExecutionMethod.PATCH,
+      payload
+    );
+  },
+  deleteSeries(seriesId: string) {
+    return executeAdminConsole<{ success: boolean }>(
+      `/series/${seriesId}`,
+      ExecutionMethod.DELETE
+    );
+  },
+  publishSeries(seriesId: string, payload: Record<string, unknown>) {
+    return executeAdminConsole<AppwriteSeriesDocument>(
+      `/series/${seriesId}/publish`,
+      ExecutionMethod.POST,
+      payload
+    );
+  },
+  createSeason(seriesId: string, payload: Record<string, unknown>) {
+    return executeAdminConsole<AppwriteSeasonDocument>(
+      `/series/${seriesId}/seasons`,
+      ExecutionMethod.POST,
+      payload
+    );
+  },
+  updateSeason(seasonId: string, payload: Record<string, unknown>) {
+    return executeAdminConsole<AppwriteSeasonDocument>(
+      `/seasons/${seasonId}`,
+      ExecutionMethod.PATCH,
+      payload
+    );
+  },
+  deleteSeason(seasonId: string) {
+    return executeAdminConsole<{ success: boolean }>(
+      `/seasons/${seasonId}`,
+      ExecutionMethod.DELETE
+    );
+  },
+  publishSeason(seasonId: string, payload: Record<string, unknown>) {
+    return executeAdminConsole<AppwriteSeasonDocument>(
+      `/seasons/${seasonId}/publish`,
+      ExecutionMethod.POST,
+      payload
+    );
+  },
+  createEpisode(payload: Record<string, unknown>) {
+    return executeAdminConsole<AppwriteEpisodeDocument>(
+      "/episodes",
+      ExecutionMethod.POST,
+      payload
+    );
+  },
+  updateEpisode(episodeId: string, payload: Record<string, unknown>) {
+    return executeAdminConsole<AppwriteEpisodeDocument>(
+      `/episodes/${episodeId}`,
+      ExecutionMethod.PATCH,
+      payload
+    );
+  },
+  deleteEpisode(episodeId: string) {
+    return executeAdminConsole<{ success: boolean }>(
+      `/episodes/${episodeId}`,
+      ExecutionMethod.DELETE
+    );
+  },
+  publishEpisode(episodeId: string, payload: Record<string, unknown>) {
+    return executeAdminConsole<AppwriteEpisodeDocument>(
+      `/episodes/${episodeId}/publish`,
+      ExecutionMethod.POST,
+      payload
     );
   },
   reviewMovie(movieId: string, payload: Record<string, unknown>) {

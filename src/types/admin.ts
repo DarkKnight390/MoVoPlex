@@ -25,6 +25,33 @@ export const movieStatuses = [
   "deleted",
 ] as const;
 
+export const seriesStatuses = [
+  "draft",
+  "pending",
+  "approved",
+  "published",
+  "unpublished",
+] as const;
+
+export const seasonStatuses = [
+  "draft",
+  "pending",
+  "published",
+  "unpublished",
+] as const;
+
+export const episodeStatuses = [
+  "draft",
+  "uploading",
+  "processing",
+  "pending_review",
+  "approved",
+  "scheduled",
+  "published",
+  "rejected",
+  "unpublished",
+] as const;
+
 export const creatorStatuses = [
   "pending",
   "approved",
@@ -79,6 +106,14 @@ export const assetTypes = [
   "main_video",
   "hls_stream",
   "subtitle",
+  "series_poster",
+  "series_banner",
+  "season_poster",
+  "episode_thumbnail",
+  "episode_trailer",
+  "episode_video",
+  "episode_hls_stream",
+  "episode_subtitle",
 ] as const;
 
 export const payoutStatuses = [
@@ -118,6 +153,9 @@ export const auditActions = [
 export type AdminRole = (typeof adminRoles)[number];
 export type AdminStatus = (typeof adminStatuses)[number];
 export type MovieStatus = (typeof movieStatuses)[number];
+export type SeriesStatus = (typeof seriesStatuses)[number];
+export type SeasonStatus = (typeof seasonStatuses)[number];
+export type EpisodeStatus = (typeof episodeStatuses)[number];
 export type CreatorStatus = (typeof creatorStatuses)[number];
 export type SubscriptionStatus = (typeof subscriptionStatuses)[number];
 export type ProcessingJobStatus = (typeof processingJobStatuses)[number];
@@ -134,6 +172,9 @@ export type AdminCapability =
   | "movies.view"
   | "movies.manage"
   | "movies.review"
+  | "series.view"
+  | "series.manage"
+  | "series.review"
   | "uploads.view"
   | "uploads.manage"
   | "creators.view"
@@ -162,6 +203,9 @@ export const adminRoleCapabilities: Record<AdminRole, AdminCapability[]> = {
     "movies.view",
     "movies.manage",
     "movies.review",
+    "series.view",
+    "series.manage",
+    "series.review",
     "uploads.view",
     "uploads.manage",
     "creators.view",
@@ -189,6 +233,9 @@ export const adminRoleCapabilities: Record<AdminRole, AdminCapability[]> = {
     "movies.view",
     "movies.manage",
     "movies.review",
+    "series.view",
+    "series.manage",
+    "series.review",
     "uploads.view",
     "uploads.manage",
     "creators.view",
@@ -201,6 +248,7 @@ export const adminRoleCapabilities: Record<AdminRole, AdminCapability[]> = {
   moderator: [
     "dashboard.view",
     "movies.view",
+    "series.view",
     "reports.view",
     "reports.manage",
     "audit_logs.view",
@@ -223,6 +271,8 @@ export const adminRoleCapabilities: Record<AdminRole, AdminCapability[]> = {
     "dashboard.view",
     "movies.view",
     "movies.manage",
+    "series.view",
+    "series.manage",
     "uploads.view",
     "uploads.manage",
     "categories.view",
@@ -231,6 +281,7 @@ export const adminRoleCapabilities: Record<AdminRole, AdminCapability[]> = {
   read_only: [
     "dashboard.view",
     "movies.view",
+    "series.view",
     "creators.view",
     "homepage.view",
     "categories.view",
@@ -256,6 +307,7 @@ export type AdminNavItem = {
 export const adminSidebarItems: AdminNavItem[] = [
   { label: "Dashboard", path: "/admin/dashboard", capability: "dashboard.view" },
   { label: "Movies", path: "/admin/movies", capability: "movies.view" },
+  { label: "Series", path: "/admin/series", capability: "series.view" },
   { label: "Approval Queue", path: "/admin/approval-queue", capability: "movies.review" },
   { label: "Creators", path: "/admin/creators", capability: "creators.view" },
   { label: "Users", path: "/admin/users", capability: "users.view", shell: true },
