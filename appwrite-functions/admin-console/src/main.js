@@ -2351,13 +2351,13 @@ const beginUpload = async ({ req, membership, request }) => {
             : owner.ownerType === "season"
               ? owner.series.$id
               : owner.ownerType === "episode"
-                ? owner.series.$id
+                ? null
                 : null,
         season_id:
           owner.ownerType === "season"
             ? owner.season.$id
             : owner.ownerType === "episode"
-              ? owner.season.$id
+              ? null
               : null,
         episode_id: owner.ownerType === "episode" ? owner.episode.$id : null,
         asset_owner_type: owner.ownerType === "movie" ? "movie" : owner.ownerType,
@@ -2400,13 +2400,13 @@ const beginUpload = async ({ req, membership, request }) => {
             : owner.ownerType === "season"
               ? owner.series.$id
               : owner.ownerType === "episode"
-                ? owner.series.$id
+                ? null
                 : null,
         season_id:
           owner.ownerType === "season"
             ? owner.season.$id
             : owner.ownerType === "episode"
-              ? owner.season.$id
+              ? null
               : null,
         episode_id: owner.ownerType === "episode" ? owner.episode.$id : null,
         entity_type: owner.ownerType,

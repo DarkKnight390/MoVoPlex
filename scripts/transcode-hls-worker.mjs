@@ -454,8 +454,8 @@ const registerHlsWithAppwrite = async ({ movieId, episodeId, manifestKey }) => {
 
   const assetPayload = {
     movie_id: isEpisode ? episodeId : movieId,
-    series_id: isEpisode ? series.$id : null,
-    season_id: isEpisode ? season.$id : null,
+    series_id: isEpisode ? null : null,
+    season_id: isEpisode ? null : null,
     episode_id: isEpisode ? episodeId : null,
     asset_type: isEpisode ? "episode_hls_stream" : "hls_stream",
     bucket: hlsBucket,
@@ -489,8 +489,8 @@ const registerHlsWithAppwrite = async ({ movieId, episodeId, manifestKey }) => {
 
   const jobPayload = {
     movie_id: isEpisode ? episodeId : movieId,
-    series_id: isEpisode ? series.$id : null,
-    season_id: isEpisode ? season.$id : null,
+    series_id: isEpisode ? null : null,
+    season_id: isEpisode ? null : null,
     episode_id: isEpisode ? episodeId : null,
     entity_type: isEpisode ? "episode" : "movie",
     job_type: isEpisode ? "episode_hls_transcode" : "hls_transcode",
