@@ -1,26 +1,30 @@
-[
-  {
-    "corsRuleName": "movoplex-local-upload",
-    "allowedOrigins": [
-      "http://127.0.0.1:4173",
-      "http://localhost:4173"
-    ],
-    "allowedHeaders": [
-      "authorization",
-      "content-type",
-      "x-bz-part-number",
-      "x-bz-file-name",
-      "x-bz-content-sha1"
-    ],
-    "allowedOperations": [
-      "b2_upload_file",
-      "b2_upload_part"
-    ],
-    "exposeHeaders": [
-      "x-bz-file-id",
-      "x-bz-file-name",
-      "x-bz-content-sha1"
-    ],
-    "maxAgeSeconds": 3600
-  }
-]
+{
+  "r2_temp_processing_bucket_cors": [
+    {
+      "AllowedOrigins": [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:4173",
+        "http://localhost:4173"
+      ],
+      "AllowedMethods": ["PUT", "GET", "HEAD"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3600
+    }
+  ],
+  "r2_playback_bucket_cors": [
+    {
+      "AllowedOrigins": [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:4173",
+        "http://localhost:4173"
+      ],
+      "AllowedMethods": ["GET", "HEAD"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}

@@ -45,6 +45,7 @@ export type AppwriteMovieDocument = Models.Document & {
   category_ids?: string[] | null;
   rejection_reason_code?: RejectionReasonCode | null;
   rejection_reason_note?: string | null;
+  hls_manifest_url?: string | null;
   video_url?: string | null;
 };
 

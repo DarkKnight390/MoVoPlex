@@ -11,6 +11,7 @@ export interface Movie {
   year: number;
   genre: string;
   duration: string;
+  hls_manifest_url?: string;
   video_url?: string;
   banner?: string;
   trailer?: string;

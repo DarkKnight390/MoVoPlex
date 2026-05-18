@@ -192,7 +192,7 @@ Recommended examples:
 - `poster`: `r2://movoplex-thumbnails/movies/big-buck-bunny/poster.jpg`
 - `banner`: `r2://movoplex-thumbnails/movies/big-buck-bunny/banner.jpg`
 - `trailer`: `r2://movoplex-trailers/movies/big-buck-bunny/trailer.mp4`
-- `video_url`: `r2://movoplex-videos/movies/big-buck-bunny/master.mp4`
+- `video_url`: `r2://movoplex-hls-streams/movies/big-buck-bunny/master.m3u8`
 
 Legacy `b2://` refs are still signed when Backblaze credentials are configured.
 

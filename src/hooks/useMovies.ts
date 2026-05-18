@@ -9,6 +9,7 @@ import { AppwriteMovieDocument } from "@/integrations/appwrite/types";
 import { Movie } from "@/types/movie";
 import { adminConsoleApi } from "@/lib/adminConsoleApi";
 import {
+  isStoredHlsAsset,
   isStorageStoredAsset,
   isTempStoredAsset,
   resolveStoredAssetUrl,
@@ -21,8 +22,18 @@ const resolveMovieAssetUrl = (value?: string | null, signedUrls?: SignedUrlMap) 
     return "";
   }
 
+  if (isStoredHlsAsset(value)) {
+    return resolveStoredAssetUrl(value);
+  }
+
   return signedUrls?.[value] || resolveStoredAssetUrl(value);
 };
+
+const getPlaybackStreamRef = (movie: AppwriteMovieDocument) =>
+  movie.video_url || movie.hls_manifest_url || "";
+
+const isFinalizedHlsPlaybackRef = (value?: string | null) =>
+  Boolean(value && !isTempStoredAsset(value) && /\.m3u8(?:\?|$)/i.test(value));
 
 const mapMovieDocument = (movie: AppwriteMovieDocument, signedUrls?: SignedUrlMap): Movie => ({
   id: movie.$id,
@@ -57,7 +68,13 @@ const mapMovieDocument = (movie: AppwriteMovieDocument, signedUrls?: SignedUrlMa
   category_ids: movie.category_ids || [],
   rejection_reason_code: movie.rejection_reason_code || undefined,
   rejection_reason_note: movie.rejection_reason_note || undefined,
-  video_url: movie.video_url ? resolveMovieAssetUrl(movie.video_url, signedUrls) : undefined,
+  video_url: getPlaybackStreamRef(movie)
+    ? resolveMovieAssetUrl(getPlaybackStreamRef(movie), signedUrls)
+    : undefined,
+  hls_manifest_url:
+    movie.hls_manifest_url && movie.hls_manifest_url !== movie.video_url
+      ? resolveMovieAssetUrl(movie.hls_manifest_url, signedUrls)
+      : undefined,
 });
 
 const getMoviesCollectionError = () =>
@@ -69,12 +86,12 @@ const isPubliclyPlayableMovie = (movie: AppwriteMovieDocument) =>
   (movie.status === "published" ||
     (!movie.status &&
       Boolean(movie.poster) &&
-      Boolean(movie.video_url) &&
+      Boolean(getPlaybackStreamRef(movie)) &&
       !movie.rejection_reason_code)) &&
   Boolean(movie.poster) &&
-  Boolean(movie.video_url) &&
+  isFinalizedHlsPlaybackRef(getPlaybackStreamRef(movie)) &&
   !isTempStoredAsset(movie.poster) &&
-  !isTempStoredAsset(movie.video_url);
+  !isTempStoredAsset(getPlaybackStreamRef(movie));
 
 const collectPrivateAssetRefs = (movies: AppwriteMovieDocument[]) => {
   const refs = new Set<string>();
@@ -89,9 +106,15 @@ const collectPrivateAssetRefs = (movies: AppwriteMovieDocument[]) => {
       movie.trailer_url,
       movie.previewUrl,
       movie.preview_url,
+      movie.hls_manifest_url,
       movie.video_url,
     ].forEach((value) => {
-      if (value && isStorageStoredAsset(value) && !isTempStoredAsset(value)) {
+      if (
+        value &&
+        isStorageStoredAsset(value) &&
+        !isTempStoredAsset(value) &&
+        !isStoredHlsAsset(value)
+      ) {
         refs.add(value);
       }
     });

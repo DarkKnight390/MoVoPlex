@@ -40,7 +40,14 @@ const capabilityMatrix = {
   uploader: ["uploads.manage", "movies.manage"],
 };
 
-const uploadAssetTypes = new Set(["poster", "banner", "trailer", "main_video", "subtitle"]);
+const uploadAssetTypes = new Set([
+  "poster",
+  "banner",
+  "trailer",
+  "main_video",
+  "hls_stream",
+  "subtitle",
+]);
 const finalizableAssetStatuses = new Set(["pending", "uploaded", "processing", "failed"]);
 const creatorStatuses = new Set(["pending", "approved", "verified", "suspended", "banned", "deleted"]);
 const subscriptionAvailabilities = new Set(["free", "subscriber_only", "scheduled"]);
@@ -517,6 +524,11 @@ const getBackblazeConfig = () => {
       main_video: {
         bucketId: videosBucketId,
         bucketName: videosBucketName,
+        movieField: null,
+      },
+      hls_stream: {
+        bucketId: null,
+        bucketName: process.env.BACKBLAZE_HLS_STREAMS_BUCKET_NAME || "movoplex-hls-streams",
         movieField: "video_url",
       },
       subtitle: {
@@ -538,6 +550,8 @@ const getR2Config = () => {
   const tempBucketName =
     toNullableString(process.env.R2_TEMP_PROCESSING_BUCKET_NAME) || "movoplex-temp-processing";
   const videosBucketName = toNullableString(process.env.R2_VIDEOS_BUCKET_NAME) || "movoplex-videos";
+  const hlsStreamsBucketName =
+    toNullableString(process.env.R2_HLS_STREAMS_BUCKET_NAME) || "movoplex-hls-streams";
   const trailersBucketName =
     toNullableString(process.env.R2_TRAILERS_BUCKET_NAME) || "movoplex-trailers";
   const thumbnailsBucketName =
@@ -579,6 +593,10 @@ const getR2Config = () => {
       },
       main_video: {
         bucketName: videosBucketName,
+        movieField: null,
+      },
+      hls_stream: {
+        bucketName: hlsStreamsBucketName,
         movieField: "video_url",
       },
       subtitle: {
@@ -1106,6 +1124,25 @@ const hasRequiredFinalizedMovieMedia = (movie, tempBucketName) =>
       isFinalizedMovieMediaKey(movie?.video_url, tempBucketName)
   );
 
+const getFileExtension = (objectKey, fallback = "") => {
+  const cleanKey = String(objectKey || "").split("?")[0];
+  const fileName = cleanKey.split("/").pop() || "";
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex > -1 ? fileName.slice(dotIndex) : fallback;
+};
+
+const buildFinalObjectKey = ({ assetType, movieId, tempObjectKey }) => {
+  if (assetType === "main_video") {
+    return `movies/${movieId}/original${getFileExtension(tempObjectKey, ".mp4")}`;
+  }
+
+  if (assetType === "hls_stream") {
+    return `movies/${movieId}/master.m3u8`;
+  }
+
+  return tempObjectKey;
+};
+
 const getDestinationForAssetType = (config, assetType) => {
   const destination = config.bucketDestinations[assetType];
 
@@ -1197,14 +1234,14 @@ const buildMovieAssetPatch = ({ assetType, finalKey, currentMovie, tempBucketNam
     patch.trailer = finalKey;
   }
 
-  if (assetType === "main_video") {
+  if (assetType === "hls_stream") {
     patch.video_url = finalKey;
   }
 
   const hasPoster = Boolean(
     patch.poster || (currentMovie.poster && !isTempStoredKey(currentMovie.poster, tempBucketName))
   );
-  const hasMainVideo = Boolean(
+  const hasPlayableStream = Boolean(
     patch.video_url ||
       (currentMovie.video_url && !isTempStoredKey(currentMovie.video_url, tempBucketName))
   );
@@ -1214,7 +1251,7 @@ const buildMovieAssetPatch = ({ assetType, finalKey, currentMovie, tempBucketNam
       currentMovie.status
     )
   ) {
-    patch.status = hasPoster && hasMainVideo ? "ready" : "processing";
+    patch.status = hasPoster && hasPlayableStream ? "ready" : "processing";
   }
 
   return patch;
@@ -1240,7 +1277,7 @@ const buildMovieAssetRemovalPatch = ({ assetType, currentMovie, tempKey }) => {
     patch.trailer = null;
   }
 
-  if (assetType === "main_video" && currentMovie.video_url === activeKey) {
+  if (assetType === "hls_stream" && currentMovie.video_url === activeKey) {
     patch.video_url = null;
   }
 
@@ -1507,7 +1544,7 @@ const publishMovie = async ({ req, membership, request, movieId }) => {
   if (nextStatus === "published") {
     if (!hasRequiredFinalizedMovieMedia(currentMovie, storage.tempBucketName)) {
       const error = new Error(
-        "Movie cannot be published until a finalized poster and main video are ready."
+        "Movie cannot be published until a finalized poster and HLS stream are ready."
       );
       error.statusCode = APPWRITE_BAD_REQUEST;
       throw error;
@@ -2133,6 +2170,11 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
   try {
     let copiedFile = null;
     let finalKey = null;
+    const destinationObjectKey = buildFinalObjectKey({
+      assetType: asset.asset_type,
+      movieId: movie.$id,
+      tempObjectKey: tempLocation.objectKey,
+    });
 
     if (storage.provider === "r2") {
       const r2Client = createR2Client(storage);
@@ -2154,7 +2196,7 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
         sourceBucketName: tempLocation.bucketName,
         sourceObjectKey: tempLocation.objectKey,
         destinationBucketName: destination.bucketName,
-        destinationObjectKey: tempLocation.objectKey,
+        destinationObjectKey,
       });
 
       await deleteR2Object({
@@ -2166,7 +2208,7 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
       finalKey = buildStoredKey({
         scheme: "r2",
         bucketName: destination.bucketName,
-        objectKey: tempLocation.objectKey,
+        objectKey: destinationObjectKey,
       });
     } else {
       const authorization = await authorizeBackblaze(storage);
@@ -2201,7 +2243,7 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
         authorizationToken: authorization.authorizationToken,
         sourceFileId: sourceFileVersion.fileId,
         destinationBucketId,
-        fileName: tempLocation.objectKey,
+        fileName: destinationObjectKey,
       });
 
       await deleteBackblazeFileVersion({
@@ -2214,7 +2256,7 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
       finalKey = buildStoredKey({
         scheme: "b2",
         bucketName: destination.bucketName,
-        objectKey: tempLocation.objectKey,
+        objectKey: destinationObjectKey,
       });
     }
 
@@ -2297,6 +2339,130 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
     }
     throw caughtError;
   }
+};
+
+const completeHlsProcessing = async ({ req, membership, request }) => {
+  const body = parseBody(req);
+  const movieId = toRequiredString(body.movie_id, "movie_id");
+  const manifestKey =
+    toNullableString(body.manifest_key) || `movies/${movieId}/master.m3u8`;
+  const providedAssetId = toNullableString(body.asset_id);
+  const providedJobId = toNullableString(body.job_id);
+  const storage = getStorageConfig();
+  const destination = getDestinationForAssetType(storage, "hls_stream");
+  const movie = await getMovie(request, movieId);
+
+  if (storage.provider !== "r2") {
+    const error = new Error("HLS stream completion currently requires R2 storage.");
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  const r2Client = createR2Client(storage);
+  try {
+    await headR2ObjectWithRetry({
+      client: r2Client,
+      bucketName: destination.bucketName,
+      objectKey: manifestKey,
+    });
+  } catch {
+    const error = new Error("HLS manifest could not be located in R2.");
+    error.statusCode = APPWRITE_BAD_REQUEST;
+    throw error;
+  }
+
+  const finalKey = buildStoredKey({
+    scheme: "r2",
+    bucketName: destination.bucketName,
+    objectKey: manifestKey,
+  });
+
+  const existingAssets = providedAssetId
+    ? []
+    : await listDocuments(request, collectionIds.movieAssets);
+  const existingAsset = providedAssetId
+    ? await getDocument(request, collectionIds.movieAssets, providedAssetId)
+    : existingAssets.find(
+        (item) =>
+          item.movie_id === movieId &&
+          item.asset_type === "hls_stream" &&
+          item.final_key === finalKey
+      );
+
+  const asset = existingAsset
+    ? await updateDocument(request, collectionIds.movieAssets, existingAsset.$id, {
+        bucket: destination.bucketName,
+        temp_key: null,
+        final_key: finalKey,
+        processing_status: "ready",
+        mime_type: "application/vnd.apple.mpegurl",
+        label: "HLS master manifest",
+      })
+    : await createDocument(request, collectionIds.movieAssets, {
+        movie_id: movieId,
+        asset_type: "hls_stream",
+        bucket: destination.bucketName,
+        temp_key: null,
+        final_key: finalKey,
+        processing_status: "ready",
+        mime_type: "application/vnd.apple.mpegurl",
+        size_bytes: null,
+        duration_seconds: null,
+        language: null,
+        label: "HLS master manifest",
+      });
+
+  const existingJob = providedJobId
+    ? await getDocument(request, collectionIds.processingJobs, providedJobId)
+    : null;
+  const job = existingJob
+    ? await updateDocument(request, collectionIds.processingJobs, existingJob.$id, {
+        status: "completed",
+        input_asset_id: existingJob.input_asset_id || null,
+        output_asset_id: asset.$id,
+        error_message: null,
+      })
+    : await createDocument(request, collectionIds.processingJobs, {
+        movie_id: movieId,
+        job_type: "hls_transcode",
+        status: "completed",
+        input_asset_id: null,
+        output_asset_id: asset.$id,
+        error_message: null,
+      });
+
+  const moviePatch = buildMovieAssetPatch({
+    assetType: "hls_stream",
+    finalKey,
+    currentMovie: movie,
+    tempBucketName: storage.tempBucketName,
+  });
+  const updatedMovie =
+    Object.keys(moviePatch).length > 0
+      ? await updateDocument(request, collectionIds.movies, movie.$id, moviePatch)
+      : movie;
+
+  await writeAuditLog(request, membership, req, {
+    action: "hls_processing_completed",
+    target_type: "movie_asset",
+    target_id: asset.$id,
+    target_label: `${movie.title} - HLS stream`,
+    new_value_json: JSON.stringify({
+      movie_id: movieId,
+      manifest_key: manifestKey,
+      final_key: finalKey,
+      movie_status: updatedMovie.status,
+      storage_provider: storage.provider,
+    }),
+  });
+
+  return {
+    success: true,
+    message: "HLS stream registered for playback.",
+    asset,
+    job,
+    movie: updatedMovie,
+  };
 };
 
 const cancelUpload = async ({ req, membership, request }) => {
@@ -2919,6 +3085,11 @@ const routeRequest = async ({ req, res, context }) => {
   if (method === "POST" && path === "/uploads/process") {
     assertCapability(context.capabilities, "uploads.manage");
     return jsonResponse(res, await processUpload({ ...context, req }));
+  }
+
+  if (method === "POST" && path === "/uploads/hls/complete") {
+    assertCapability(context.capabilities, "uploads.manage");
+    return jsonResponse(res, await completeHlsProcessing({ ...context, req }));
   }
 
   if (method === "POST" && path === "/uploads/cancel") {

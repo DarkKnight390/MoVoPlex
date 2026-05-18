@@ -77,6 +77,7 @@ export const assetTypes = [
   "banner",
   "trailer",
   "main_video",
+  "hls_stream",
   "subtitle",
 ] as const;
 

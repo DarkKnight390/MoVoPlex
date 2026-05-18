@@ -6,6 +6,7 @@ const trimSlashes = (value: string) => value.replace(/^\/+|\/+$/g, "");
 
 const bucketBaseUrls: Record<string, string | undefined> = {
   "movoplex-videos": import.meta.env.VITE_R2_VIDEOS_BASE_URL,
+  "movoplex-hls-streams": import.meta.env.VITE_R2_HLS_STREAMS_BASE_URL,
   "movoplex-thumbnails": import.meta.env.VITE_R2_THUMBNAILS_BASE_URL,
   "movoplex-trailers": import.meta.env.VITE_R2_TRAILERS_BASE_URL,
   "movoplex-profile-assets": import.meta.env.VITE_R2_PROFILE_ASSETS_BASE_URL,
@@ -57,6 +58,9 @@ export const resolveStoredAssetUrl = (value?: string | null) => {
 
 export const isStorageStoredAsset = (value?: string | null) =>
   Boolean(value && STORED_ASSET_PATTERN.test(value));
+
+export const isStoredHlsAsset = (value?: string | null) =>
+  Boolean(value && STORED_ASSET_PATTERN.test(value) && /\.m3u8(?:\?|$)/i.test(value));
 
 export const isB2StoredAsset = (value?: string | null) =>
   Boolean(value && /^b2:\/\//i.test(value));

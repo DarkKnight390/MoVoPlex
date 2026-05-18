@@ -196,8 +196,10 @@ const getPublishBlockers = (movie: AppwriteMovieDocument) => {
     blockers.push("finalized poster");
   }
 
-  if (!movie.video_url || isTempStoredAsset(movie.video_url)) {
-    blockers.push("finalized main video");
+  const playbackStream = movie.video_url || movie.hls_manifest_url;
+
+  if (!playbackStream || isTempStoredAsset(playbackStream) || !/\.m3u8(?:\?|$)/i.test(playbackStream)) {
+    blockers.push("processed HLS stream");
   }
 
   return blockers;
@@ -432,7 +434,7 @@ const MoviesPage = () => {
       poster: resolveAssetValue("poster"),
       banner: resolveAssetValue("banner"),
       trailer: resolveAssetValue("trailer"),
-      video_url: resolveAssetValue("video_url"),
+      video_url: editingMovie?.video_url || null,
       rating: Number(form.rating),
       age_rating: form.age_rating.trim() || null,
       creator_user_id: form.creator_user_id || null,

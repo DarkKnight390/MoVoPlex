@@ -11,7 +11,10 @@
     "preview": "vite preview",
     "appwrite:init:movies": "node ./scripts/create-appwrite-movies-collection.mjs",
     "appwrite:init:console": "node ./scripts/create-appwrite-movies-collection.mjs",
-    "appwrite:init:admin": "node ./scripts/create-appwrite-admin-user.mjs"
+    "appwrite:init:admin": "node ./scripts/create-appwrite-admin-user.mjs",
+    "hls:worker": "node ./scripts/transcode-hls-worker.mjs",
+    "hls:auto": "node ./scripts/auto-transcode-worker.mjs",
+    "hls:auto:watch": "node ./scripts/auto-transcode-worker.mjs --watch"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1048.0",
@@ -50,6 +53,7 @@
     "cmdk": "^1.0.0",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.3.0",
+    "hls.js": "^1.6.16",
     "input-otp": "^1.2.4",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",

@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import Hls from "hls.js";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   AlertCircle,
@@ -38,13 +39,14 @@ const WatchMovie = () => {
   const { data: movie, isLoading, error } = useMovie(id);
   const { data: movies = [] } = useMovies();
 
-  const videoSource = movie?.video_url ? resolveStoredAssetUrl(movie.video_url) : "";
+  const playbackStream = movie?.video_url || movie?.hls_manifest_url;
+  const videoSource = playbackStream
+    ? resolveStoredAssetUrl(playbackStream)
+    : "";
   const embedUrl = videoSource ? getYouTubeEmbedUrl(videoSource) : null;
-  const videoMimeType = videoSource.toLowerCase().includes(".webm")
-    ? "video/webm"
-    : videoSource.toLowerCase().includes(".mov")
-      ? "video/quicktime"
-      : "video/mp4";
+  const isHlsSource = /\.m3u8(?:\?|$)/i.test(videoSource);
+  const isPlaybackPending =
+    playbackState === "loading" || playbackState === "buffering" || playbackState === "idle";
   const upNext = useMemo(() => {
     if (!movie) {
       return [];
@@ -69,11 +71,55 @@ const WatchMovie = () => {
       .slice(0, 3);
   }, [movie, movies]);
 
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!video || !videoSource || embedUrl) {
+      return undefined;
+    }
+
+    let hls: Hls | null = null;
+    setPlaybackState("loading");
+    setPlaybackErrorMessage("");
+
+    if (isHlsSource && Hls.isSupported()) {
+      hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+      });
+
+      hls.loadSource(videoSource);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setPlaybackState("ready");
+        setPlaybackErrorMessage("");
+      });
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          setPlaybackErrorMessage(data.details || "The HLS stream could not be loaded.");
+          setPlaybackState("error");
+          hls?.destroy();
+        }
+      });
+    } else if (isHlsSource && video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = videoSource;
+    } else {
+      setPlaybackErrorMessage("This title does not have a playable HLS stream yet.");
+      setPlaybackState("error");
+    }
+
+    return () => {
+      hls?.destroy();
+    };
+  }, [embedUrl, isHlsSource, videoSource]);
+
   const handlePlayPause = () => {
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
     } else {
+      setPlaybackState("loading");
+      setPlaybackErrorMessage("");
       videoRef.current.play().catch(() => {
         setPlaybackState("error");
       });
@@ -253,6 +299,11 @@ const WatchMovie = () => {
               preload="metadata"
               playsInline
               onLoadStart={() => setPlaybackState("loading")}
+              onCanPlay={() => {
+                if (playbackState !== "error" && !isPlaying) {
+                  setPlaybackState("ready");
+                }
+              }}
               onLoadedMetadata={handleLoadedMetadata}
               onPlaying={() => {
                 setPlaybackState("ready");
@@ -261,18 +312,16 @@ const WatchMovie = () => {
               onPause={() => setIsPlaying(false)}
               onWaiting={() => setPlaybackState("buffering")}
               onStalled={() => setPlaybackState("buffering")}
+              onSeeking={() => setPlaybackState("buffering")}
               onError={handlePlaybackError}
               onTimeUpdate={handleTimeUpdate}
               onEnded={() => setIsPlaying(false)}
-            >
-              <source src={videoSource} type={videoMimeType} />
-              Your browser does not support HTML5 video playback.
-            </video>
+            />
 
             {/* Center Play Controls Overlay */}
             <div
               className={`absolute inset-0 flex items-center justify-center gap-8 bg-black/30 transition-opacity duration-300 ${
-                showControls || !isPlaying ? "opacity-100" : "opacity-0"
+                (showControls || !isPlaying) && !isPlaybackPending ? "opacity-100" : "opacity-0 pointer-events-none"
               }`}
               onClick={handlePlayPause}
             >
@@ -316,10 +365,18 @@ const WatchMovie = () => {
               </button>
             </div>
 
+            {isPlaybackPending ? (
+              <div className="absolute inset-0 z-30 bg-black/78 backdrop-blur-[2px]">
+                <div className="flex h-full items-center justify-center">
+                  <LoaderCircle className="h-14 w-14 animate-spin text-red-600" strokeWidth={1.8} />
+                </div>
+              </div>
+            ) : null}
+
             {/* Bottom Controls Bar */}
             <div
               className={`absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black to-transparent px-6 py-4 transition-opacity duration-300 ${
-                showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+                showControls && !isPlaybackPending ? "opacity-100" : "opacity-0 pointer-events-none"
               }`}
             >
               <div className="max-w-7xl mx-auto space-y-3">
@@ -402,7 +459,7 @@ const WatchMovie = () => {
             <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-red-600/90 text-white">
               <Play className="h-8 w-8" />
             </div>
-            <p className="text-lg text-white">Video not available</p>
+            <p className="text-lg text-white">Streaming version not available</p>
           </div>
         )}
       </div>
@@ -416,9 +473,6 @@ const WatchMovie = () => {
             <p className="text-gray-300 mb-4">
               {playbackErrorMessage || "There was a problem playing this video. Please try again."}
             </p>
-            {videoSource ? (
-              <p className="mb-4 break-all text-xs text-gray-500">{videoSource}</p>
-            ) : null}
             <button
               onClick={() => {
                 if (videoRef.current) {
