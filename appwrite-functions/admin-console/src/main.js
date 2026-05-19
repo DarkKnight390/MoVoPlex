@@ -2691,7 +2691,7 @@ const completeUpload = async ({ req, membership, request }) => {
     new_value_json: JSON.stringify({
       processing_status: asset.processing_status,
       job_status: job.status,
-      movie_status: movie.status,
+      movie_status: movie?.status || null,
       content_type: contentType || null,
       content_sha1: contentSha1 || null,
       backblaze_file_id: backblazeFileId || null,
@@ -2828,7 +2828,7 @@ const completeLargeUpload = async ({ req, membership, request }) => {
     new_value_json: JSON.stringify({
       processing_status: asset.processing_status,
       job_status: job.status,
-      movie_status: movie.status,
+      movie_status: movie?.status || null,
       content_type: contentType || null,
       backblaze_file_id:
         storage.provider === "backblaze" ? finishedFile.fileId || largeFileId : null,
