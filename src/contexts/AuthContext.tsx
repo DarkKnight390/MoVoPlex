@@ -61,6 +61,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const hasCapability = (capability: AdminCapability) =>
     hasAdminCapability(adminMembership?.role, adminMembership?.status, capability);
 
+  const isSessionAlreadyActiveError = (error: unknown) => {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('session is active') ||
+      message.includes('session already exists') ||
+      message.includes('creation of a session is prohibited')
+    );
+  };
+
   const loadAccessProfiles = async (currentUserId: string) => {
     if (!databases) {
       setAdminMembership(null);
@@ -188,6 +201,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       return { data: { session: currentSession, user: currentUser }, error: null };
     } catch (error) {
+      if (isSessionAlreadyActiveError(error)) {
+        try {
+          const [currentSession, currentUser] = await Promise.all([
+            account.getSession('current'),
+            account.get(),
+          ]);
+
+          setSession(currentSession);
+          setUser(currentUser);
+          await loadAccessProfiles(currentUser.$id);
+
+          return { data: { session: currentSession, user: currentUser }, error: null };
+        } catch (sessionRecoveryError) {
+          return { data: null, error: sessionRecoveryError };
+        }
+      }
+
       return { data: null, error };
     }
   };

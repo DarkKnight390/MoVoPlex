@@ -14,7 +14,7 @@ const getErrorMessage = (error: unknown) => {
 };
 
 const Auth = () => {
-  const { user, signIn, signUp } = useAuth();
+  const { user, signIn, signUp, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -24,6 +24,14 @@ const Auth = () => {
     password: '',
     username: '',
   });
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center px-4">
+        <div className="text-sm text-gray-400">Checking session...</div>
+      </div>
+    );
+  }
 
   if (user) {
     return <Navigate to="/" replace />;
