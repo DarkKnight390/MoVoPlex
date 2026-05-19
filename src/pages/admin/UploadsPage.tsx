@@ -5,12 +5,28 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAdminMutation, useAdminMovies, useMovieAssets, useProcessingJobs } from "@/hooks/useAdminConsole";
+import { useAdminEpisodes, useAdminMutation, useAdminMovies, useAdminSeasons, useAdminSeries, useEpisodeAssets, useMovieAssets, useProcessingJobs } from "@/hooks/useAdminConsole";
 import { assetTypes } from "@/types/admin";
+import type { AppwriteEpisodeAssetDocument, AppwriteMovieAssetDocument } from "@/integrations/appwrite/types";
+
+type TrackedAssetDocument = AppwriteMovieAssetDocument | AppwriteEpisodeAssetDocument;
+
+const getAssetOwnerKey = (asset: TrackedAssetDocument) =>
+  [
+    asset.movie_id || "",
+    asset.series_id || "",
+    asset.season_id || "",
+    "episode_id" in asset ? asset.episode_id || "" : "",
+    asset.asset_type,
+  ].join("::");
 
 const UploadsPage = () => {
   const { data: movies = [] } = useAdminMovies();
-  const { data: assets = [] } = useMovieAssets();
+  const { data: series = [] } = useAdminSeries();
+  const { data: seasons = [] } = useAdminSeasons();
+  const { data: episodes = [] } = useAdminEpisodes();
+  const { data: movieAssets = [] } = useMovieAssets();
+  const { data: episodeAssets = [] } = useEpisodeAssets();
   const { data: jobs = [] } = useProcessingJobs();
   const { beginUpload, completeUpload, processUpload, cancelUpload, deleteUpload } = useAdminMutation();
   const [movieId, setMovieId] = useState("");
@@ -25,6 +41,22 @@ const UploadsPage = () => {
   >({});
   const [hiddenAssetIds, setHiddenAssetIds] = useState<string[]>([]);
   const [hiddenJobIds, setHiddenJobIds] = useState<string[]>([]);
+  const assets = useMemo<TrackedAssetDocument[]>(
+    () => [...movieAssets, ...episodeAssets],
+    [movieAssets, episodeAssets]
+  );
+  const ownerLabels = useMemo(() => {
+    const movieMap = new Map(movies.map((movie) => [movie.$id, movie.title]));
+    const seriesMap = new Map(series.map((item) => [item.$id, item.title]));
+    const seasonMap = new Map(
+      seasons.map((season) => [season.$id, `Season ${season.season_number}`])
+    );
+    const episodeMap = new Map(
+      episodes.map((episode) => [episode.$id, `Episode ${episode.episode_number}: ${episode.title}`])
+    );
+
+    return { movieMap, seriesMap, seasonMap, episodeMap };
+  }, [episodes, movies, seasons, series]);
   const assetsWithJobs = useMemo(
     () =>
       assets
@@ -250,7 +282,7 @@ const UploadsPage = () => {
               const hasReplacementFinalizedAsset = assetsWithJobs.some(
                 ({ asset: candidate }) =>
                   candidate.$id !== asset.$id &&
-                  candidate.movie_id === asset.movie_id &&
+                  getAssetOwnerKey(candidate) === getAssetOwnerKey(asset) &&
                   candidate.asset_type === asset.asset_type &&
                   Boolean(candidate.final_key)
               );
@@ -273,6 +305,14 @@ const UploadsPage = () => {
                 !job ||
                 ["completed", "failed", "cancelled"].includes(job.status) ||
                 ["ready", "failed"].includes(asset.processing_status);
+              const ownerLabel =
+                ("episode_id" in asset && asset.episode_id
+                  ? ownerLabels.episodeMap.get(asset.episode_id)
+                  : null) ||
+                (asset.season_id ? ownerLabels.seasonMap.get(asset.season_id) : null) ||
+                (asset.series_id ? ownerLabels.seriesMap.get(asset.series_id) : null) ||
+                (asset.movie_id ? ownerLabels.movieMap.get(asset.movie_id) : null) ||
+                "Unresolved owner";
 
               return (
                 <div key={asset.$id} className="rounded-2xl border border-gray-800 bg-black/30 p-4">
@@ -289,6 +329,9 @@ const UploadsPage = () => {
                   </div>
                   <p className="mt-2 text-sm text-gray-400">
                     Temp key: {asset.temp_key || "Not recorded yet"}
+                  </p>
+                  <p className="text-sm text-gray-400">
+                    Owner: {ownerLabel}
                   </p>
                   <p className="text-xs text-gray-500">
                     Asset ID: {asset.$id}
@@ -360,7 +403,7 @@ const UploadsPage = () => {
                 </div>
               );
             })}
-            {!assets.length ? (
+            {!assetsWithJobs.length ? (
               <div className="rounded-2xl border border-gray-800 bg-black/30 p-6 text-sm text-gray-400">
                 No upload assets tracked yet.
               </div>
