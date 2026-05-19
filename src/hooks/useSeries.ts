@@ -60,6 +60,10 @@ const resolveSeriesAssetUrl = (value?: string | null, signedUrls?: SignedUrlMap)
     return "";
   }
 
+  if (isTempStoredAsset(value)) {
+    return "";
+  }
+
   if (isStoredHlsAsset(value)) {
     return resolveStoredAssetUrl(value);
   }
@@ -113,8 +117,7 @@ const resolveSignedAssets = async (
 const isPubliclyVisibleSeries = (series: AppwriteSeriesDocument) =>
   series.status === "published" &&
   Boolean(series.poster) &&
-  !isTempStoredAsset(series.poster) &&
-  (!series.banner || !isTempStoredAsset(series.banner));
+  !isTempStoredAsset(series.poster);
 
 const isPubliclyVisibleEpisode = (episode: AppwriteEpisodeDocument) =>
   episode.status === "published" &&

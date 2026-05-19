@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import MovieDetail from "./pages/MovieDetail_NetflixStyle";
 import SeriesDetail from "./pages/SeriesDetail";
+import TVShows from "./pages/TVShows";
 import WatchMovie from "./pages/WatchMovie";
 import WatchEpisode from "./pages/WatchEpisode";
 import NotFound from "./pages/NotFound";
@@ -52,6 +53,11 @@ const App = () => (
             <Route path="/series/:id" element={
               <ProtectedRoute>
                 <SeriesDetail />
+              </ProtectedRoute>
+            } />
+            <Route path="/shows" element={
+              <ProtectedRoute>
+                <TVShows />
               </ProtectedRoute>
             } />
             <Route

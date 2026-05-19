@@ -36,7 +36,7 @@ const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
           <nav className="hidden md:flex items-center space-x-8">
             <Link to="/" className="text-white hover:text-red-400 transition-colors">Home</Link>
             <Link to="/" className="text-gray-300 hover:text-red-400 transition-colors">Movies</Link>
-            <Link to="/" className="text-gray-300 hover:text-red-400 transition-colors">TV Shows</Link>
+            <Link to="/shows" className="text-gray-300 hover:text-red-400 transition-colors">TV Shows</Link>
             <a href="#" className="text-gray-300 hover:text-red-400 transition-colors">My List</a>
             {isAdmin && (
               <Link to="/admin/dashboard" className="text-red-400 hover:text-red-300 transition-colors">
@@ -140,7 +140,7 @@ const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
                   Home
                 </Link>
                 <Link to="/" className="text-gray-300 hover:text-red-400 transition-colors py-2">Movies</Link>
-                <Link to="/" className="text-gray-300 hover:text-red-400 transition-colors py-2">TV Shows</Link>
+                <Link to="/shows" className="text-gray-300 hover:text-red-400 transition-colors py-2">TV Shows</Link>
                 <a href="#" className="text-gray-300 hover:text-red-400 transition-colors py-2">My List</a>
                 {isAdmin && (
                   <Link
