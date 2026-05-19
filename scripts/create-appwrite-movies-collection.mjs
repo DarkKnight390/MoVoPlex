@@ -230,7 +230,7 @@ const collectionDefinitions = [
     id:
       process.env.APPWRITE_EPISODE_ASSETS_COLLECTION_ID ||
       process.env.VITE_APPWRITE_EPISODE_ASSETS_COLLECTION_ID ||
-      "episode_assets",
+      "episode_assets_v2",
     name: "Episode Assets",
     permissions: collectionPermissions.adminReadWrite,
     attributes: [
