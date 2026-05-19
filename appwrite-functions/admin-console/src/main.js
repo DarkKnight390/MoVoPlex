@@ -1598,6 +1598,136 @@ const getAssetCollectionIdForOwnerType = (ownerType) =>
 const getAssetAuditTargetType = (ownerType) =>
   ownerType === "episode" ? "episode_asset" : "movie_asset";
 
+const buildUploadAssetCreatePayload = ({
+  owner,
+  movieId,
+  assetType,
+  storage,
+  tempKey,
+  mimeType,
+  sizeBytes,
+  language,
+  originalFileName,
+}) => {
+  if (owner.ownerType === "episode") {
+    return {
+      series_id: owner.series.$id,
+      season_id: owner.season.$id,
+      episode_id: owner.episode.$id,
+      asset_type: assetType,
+      bucket: storage.tempBucketName,
+      temp_key: tempKey,
+      final_key: null,
+      processing_status: "pending",
+      mime_type: mimeType || null,
+      size_bytes: Number.isFinite(Number(sizeBytes)) ? Number(sizeBytes) : null,
+      duration_seconds: null,
+      language: language || null,
+      label: originalFileName,
+    };
+  }
+
+  return {
+    movie_id:
+      owner.ownerType === "movie"
+        ? movieId
+        : null,
+    series_id:
+      owner.ownerType === "series"
+        ? owner.series.$id
+        : owner.ownerType === "season"
+          ? owner.series.$id
+          : null,
+    season_id: owner.ownerType === "season" ? owner.season.$id : null,
+    asset_owner_type: owner.ownerType === "movie" ? "movie" : owner.ownerType,
+    asset_type: assetType,
+    bucket: storage.tempBucketName,
+    temp_key: tempKey,
+    final_key: null,
+    processing_status: "pending",
+    mime_type: mimeType || null,
+    size_bytes: Number.isFinite(Number(sizeBytes)) ? Number(sizeBytes) : null,
+    duration_seconds: null,
+    language: language || null,
+    label: originalFileName,
+  };
+};
+
+const buildUploadJobCreatePayload = ({ owner, movieId, assetType, assetId }) => ({
+  movie_id: owner.ownerType === "movie" ? movieId : null,
+  series_id:
+    owner.ownerType === "series"
+      ? owner.series.$id
+      : owner.ownerType === "season"
+        ? owner.series.$id
+        : owner.ownerType === "episode"
+          ? owner.series.$id
+          : null,
+  season_id:
+    owner.ownerType === "season"
+      ? owner.season.$id
+      : owner.ownerType === "episode"
+        ? owner.season.$id
+        : null,
+  episode_id: owner.ownerType === "episode" ? owner.episode.$id : null,
+  entity_type: owner.ownerType,
+  job_type: `${assetType}_upload`,
+  status: "queued",
+  input_asset_id: assetId,
+  output_asset_id: null,
+  error_message: null,
+});
+
+const buildHlsAssetCreatePayload = ({ owner, movieId, episodeId, destination, finalKey }) => {
+  if (episodeId) {
+    return {
+      series_id: owner.series.$id,
+      season_id: owner.season.$id,
+      episode_id: owner.episode.$id,
+      asset_type: "episode_hls_stream",
+      bucket: destination.bucketName,
+      temp_key: null,
+      final_key: finalKey,
+      processing_status: "ready",
+      mime_type: "application/vnd.apple.mpegurl",
+      size_bytes: null,
+      duration_seconds: null,
+      language: null,
+      label: "HLS master manifest",
+    };
+  }
+
+  return {
+    movie_id: movieId,
+    series_id: null,
+    season_id: null,
+    asset_owner_type: "movie",
+    asset_type: "hls_stream",
+    bucket: destination.bucketName,
+    temp_key: null,
+    final_key: finalKey,
+    processing_status: "ready",
+    mime_type: "application/vnd.apple.mpegurl",
+    size_bytes: null,
+    duration_seconds: null,
+    language: null,
+    label: "HLS master manifest",
+  };
+};
+
+const buildHlsJobCreatePayload = ({ owner, movieId, episodeId, assetId }) => ({
+  movie_id: episodeId ? null : movieId,
+  series_id: episodeId ? owner.series.$id : null,
+  season_id: episodeId ? owner.season.$id : null,
+  episode_id: episodeId || null,
+  entity_type: episodeId ? "episode" : "movie",
+  job_type: episodeId ? "episode_hls_transcode" : "hls_transcode",
+  status: "completed",
+  input_asset_id: null,
+  output_asset_id: assetId,
+  error_message: null,
+});
+
 const getStoredAssetContext = async (request, assetId) => {
   try {
     const asset = await getDocument(request, collectionIds.movieAssets, assetId);
@@ -2335,43 +2465,21 @@ const beginUpload = async ({ req, membership, request }) => {
         language: language || existingAsset.language || null,
         label: originalFileName,
       })
-    : await createDocument(request, assetCollectionId, {
-        movie_id:
-          movieId ||
-          (owner.ownerType === "episode"
-            ? owner.episode.$id
-            : owner.ownerType === "season"
-              ? owner.season.$id
-              : owner.ownerType === "series"
-                ? owner.series.$id
-                : null),
-        series_id:
-          owner.ownerType === "series"
-            ? owner.series.$id
-            : owner.ownerType === "season"
-              ? owner.series.$id
-              : owner.ownerType === "episode"
-                ? owner.series.$id
-                : null,
-        season_id:
-          owner.ownerType === "season"
-            ? owner.season.$id
-            : owner.ownerType === "episode"
-              ? owner.season.$id
-              : null,
-        episode_id: owner.ownerType === "episode" ? owner.episode.$id : null,
-        asset_owner_type: owner.ownerType === "movie" ? "movie" : owner.ownerType,
-        asset_type: assetType,
-        bucket: storage.tempBucketName,
-        temp_key: tempKey,
-        final_key: null,
-        processing_status: "pending",
-        mime_type: mimeType || null,
-        size_bytes: Number.isFinite(Number(sizeBytes)) ? Number(sizeBytes) : null,
-        duration_seconds: null,
-        language: language || null,
-        label: originalFileName,
-      });
+    : await createDocument(
+        request,
+        assetCollectionId,
+        buildUploadAssetCreatePayload({
+          owner,
+          movieId,
+          assetType,
+          storage,
+          tempKey,
+          mimeType,
+          sizeBytes,
+          language,
+          originalFileName,
+        })
+      );
 
   const existingJob = existingJobs.find(
     (item) =>
@@ -2384,38 +2492,16 @@ const beginUpload = async ({ req, membership, request }) => {
         error_message: null,
         input_asset_id: asset.$id,
       })
-    : await createDocument(request, collectionIds.processingJobs, {
-        movie_id:
-          movieId ||
-          (owner.ownerType === "episode"
-            ? owner.episode.$id
-            : owner.ownerType === "season"
-              ? owner.season.$id
-              : owner.ownerType === "series"
-                ? owner.series.$id
-                : null),
-        series_id:
-          owner.ownerType === "series"
-            ? owner.series.$id
-            : owner.ownerType === "season"
-              ? owner.series.$id
-              : owner.ownerType === "episode"
-                ? owner.series.$id
-                : null,
-        season_id:
-          owner.ownerType === "season"
-            ? owner.season.$id
-            : owner.ownerType === "episode"
-              ? owner.season.$id
-              : null,
-        episode_id: owner.ownerType === "episode" ? owner.episode.$id : null,
-        entity_type: owner.ownerType,
-        job_type: `${assetType}_upload`,
-        status: "queued",
-        input_asset_id: asset.$id,
-        output_asset_id: null,
-        error_message: null,
-      });
+    : await createDocument(
+        request,
+        collectionIds.processingJobs,
+        buildUploadJobCreatePayload({
+          owner,
+          movieId,
+          assetType,
+          assetId: asset.$id,
+        })
+      );
 
   if (owner.ownerType === "movie") {
     if (["draft", "processing_failed", "ready", "unpublished"].includes(owner.movie.status)) {
@@ -3209,23 +3295,17 @@ const completeHlsProcessing = async ({ req, membership, request }) => {
         mime_type: "application/vnd.apple.mpegurl",
         label: "HLS master manifest",
       })
-    : await createDocument(request, episodeId ? collectionIds.episodeAssets : collectionIds.movieAssets, {
-        movie_id: episodeId || movieId,
-        series_id: episodeId ? owner.series.$id : null,
-        season_id: episodeId ? owner.season.$id : null,
-        episode_id: episodeId || null,
-        asset_owner_type: episodeId ? null : "movie",
-        asset_type: episodeId ? "episode_hls_stream" : "hls_stream",
-        bucket: destination.bucketName,
-        temp_key: null,
-        final_key: finalKey,
-        processing_status: "ready",
-        mime_type: "application/vnd.apple.mpegurl",
-        size_bytes: null,
-        duration_seconds: null,
-        language: null,
-        label: "HLS master manifest",
-      });
+    : await createDocument(
+        request,
+        episodeId ? collectionIds.episodeAssets : collectionIds.movieAssets,
+        buildHlsAssetCreatePayload({
+          owner,
+          movieId,
+          episodeId,
+          destination,
+          finalKey,
+        })
+      );
 
   const existingJob = providedJobId
     ? await getDocument(request, collectionIds.processingJobs, providedJobId)
@@ -3237,18 +3317,16 @@ const completeHlsProcessing = async ({ req, membership, request }) => {
         output_asset_id: asset.$id,
         error_message: null,
       })
-    : await createDocument(request, collectionIds.processingJobs, {
-        movie_id: episodeId || movieId,
-        series_id: episodeId ? owner.series.$id : null,
-        season_id: episodeId ? owner.season.$id : null,
-        episode_id: episodeId || null,
-        entity_type: episodeId ? "episode" : "movie",
-        job_type: episodeId ? "episode_hls_transcode" : "hls_transcode",
-        status: "completed",
-        input_asset_id: null,
-        output_asset_id: asset.$id,
-        error_message: null,
-      });
+    : await createDocument(
+        request,
+        collectionIds.processingJobs,
+        buildHlsJobCreatePayload({
+          owner,
+          movieId,
+          episodeId,
+          assetId: asset.$id,
+        })
+      );
 
   const updatedMovie = episodeId
     ? null

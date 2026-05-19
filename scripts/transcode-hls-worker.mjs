@@ -452,22 +452,37 @@ const registerHlsWithAppwrite = async ({ movieId, episodeId, manifestKey }) => {
       item.processing_status === "ready"
   );
 
-  const assetPayload = {
-    movie_id: isEpisode ? episodeId : movieId,
-    series_id: isEpisode ? series.$id : null,
-    season_id: isEpisode ? season.$id : null,
-    episode_id: isEpisode ? episodeId : null,
-    asset_type: isEpisode ? "episode_hls_stream" : "hls_stream",
-    bucket: hlsBucket,
-    temp_key: null,
-    final_key: finalKey,
-    processing_status: "ready",
-    mime_type: "application/vnd.apple.mpegurl",
-    size_bytes: null,
-    duration_seconds: null,
-    language: null,
-    label: "HLS master manifest",
-  };
+  const assetPayload = isEpisode
+    ? {
+        series_id: series.$id,
+        season_id: season.$id,
+        episode_id: episodeId,
+        asset_type: "episode_hls_stream",
+        bucket: hlsBucket,
+        temp_key: null,
+        final_key: finalKey,
+        processing_status: "ready",
+        mime_type: "application/vnd.apple.mpegurl",
+        size_bytes: null,
+        duration_seconds: null,
+        language: null,
+        label: "HLS master manifest",
+      }
+    : {
+        movie_id: movieId,
+        series_id: null,
+        season_id: null,
+        asset_type: "hls_stream",
+        bucket: hlsBucket,
+        temp_key: null,
+        final_key: finalKey,
+        processing_status: "ready",
+        mime_type: "application/vnd.apple.mpegurl",
+        size_bytes: null,
+        duration_seconds: null,
+        language: null,
+        label: "HLS master manifest",
+      };
 
   const asset = existingAsset
     ? await updateDocument(
@@ -488,7 +503,7 @@ const registerHlsWithAppwrite = async ({ movieId, episodeId, manifestKey }) => {
   );
 
   const jobPayload = {
-    movie_id: isEpisode ? episodeId : movieId,
+    movie_id: isEpisode ? null : movieId,
     series_id: isEpisode ? series.$id : null,
     season_id: isEpisode ? season.$id : null,
     episode_id: isEpisode ? episodeId : null,
