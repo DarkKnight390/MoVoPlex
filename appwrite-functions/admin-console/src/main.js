@@ -3256,7 +3256,28 @@ const processUpload = async ({ req, membership, request, body: providedBody }) =
         status: "processing_failed",
       }).catch(() => null);
     }
-    throw caughtError;
+    throw appendErrorContext(caughtError, {
+      phase: "processUpload",
+      owner_type: owner.ownerType,
+      resolved_collection_ids: {
+        movie_assets: collectionIds.movieAssets,
+        episode_assets: collectionIds.episodeAssets,
+        processing_jobs: collectionIds.processingJobs,
+      },
+      asset_collection_id: assetContext.assetCollectionId,
+      asset_id: asset.$id,
+      asset_type: asset.asset_type,
+      job_id: resolvedJob.$id,
+      temp_key: asset.temp_key || null,
+      destination_bucket: destination.bucketName,
+      destination_object_key,
+      owner_ids: {
+        movie_id: asset.movie_id || null,
+        series_id: asset.series_id || null,
+        season_id: asset.season_id || null,
+        episode_id: asset.episode_id || null,
+      },
+    });
   }
 };
 
