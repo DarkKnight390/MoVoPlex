@@ -1678,6 +1678,12 @@ const buildUploadJobCreatePayload = ({ owner, movieId, assetType, assetId }) => 
   error_message: null,
 });
 
+const appendErrorContext = (error, context) => {
+  const formattedContext = JSON.stringify(context, null, 2);
+  error.message = `${error.message}\nDebug context:\n${formattedContext}`;
+  return error;
+};
+
 const buildHlsAssetCreatePayload = ({ owner, movieId, episodeId, destination, finalKey }) => {
   if (episodeId) {
     return {
@@ -2452,56 +2458,103 @@ const beginUpload = async ({ req, membership, request }) => {
       item.processing_status !== "ready"
   );
 
-  const asset = existingAsset
-    ? await updateDocument(request, assetCollectionId, existingAsset.$id, {
-        bucket: storage.tempBucketName,
-        temp_key: tempKey,
-        final_key: null,
-        processing_status: "pending",
-        mime_type: mimeType || existingAsset.mime_type || null,
-        size_bytes:
-          Number.isFinite(Number(sizeBytes)) ? Number(sizeBytes) : existingAsset.size_bytes || null,
-        duration_seconds: existingAsset.duration_seconds || null,
-        language: language || existingAsset.language || null,
-        label: originalFileName,
-      })
-    : await createDocument(
-        request,
-        assetCollectionId,
-        buildUploadAssetCreatePayload({
-          owner,
-          movieId,
-          assetType,
-          storage,
-          tempKey,
-          mimeType,
-          sizeBytes,
-          language,
-          originalFileName,
-        })
-      );
+  const assetCreatePayload = buildUploadAssetCreatePayload({
+    owner,
+    movieId,
+    assetType,
+    storage,
+    tempKey,
+    mimeType,
+    sizeBytes,
+    language,
+    originalFileName,
+  });
+  const assetUpdatePayload = {
+    bucket: storage.tempBucketName,
+    temp_key: tempKey,
+    final_key: null,
+    processing_status: "pending",
+    mime_type: mimeType || existingAsset?.mime_type || null,
+    size_bytes:
+      Number.isFinite(Number(sizeBytes)) ? Number(sizeBytes) : existingAsset?.size_bytes || null,
+    duration_seconds: existingAsset?.duration_seconds || null,
+    language: language || existingAsset?.language || null,
+    label: originalFileName,
+  };
+  let asset;
+  try {
+    asset = existingAsset
+      ? await updateDocument(request, assetCollectionId, existingAsset.$id, assetUpdatePayload)
+      : await createDocument(request, assetCollectionId, assetCreatePayload);
+  } catch (caughtError) {
+    throw appendErrorContext(caughtError, {
+      phase: "beginUpload.asset",
+      owner_type: owner.ownerType,
+      requested_owner_ids: {
+        movie_id: movieId || null,
+        series_id: seriesId || null,
+        season_id: seasonId || null,
+        episode_id: episodeId || null,
+      },
+      resolved_collection_ids: {
+        movie_assets: collectionIds.movieAssets,
+        episode_assets: collectionIds.episodeAssets,
+        processing_jobs: collectionIds.processingJobs,
+      },
+      target_collection_id: assetCollectionId,
+      payload_keys: Object.keys(existingAsset ? assetUpdatePayload : assetCreatePayload),
+      existing_asset_id: existingAsset?.$id || null,
+      asset_type: assetType,
+      temp_key: tempKey,
+      object_key: objectKey,
+    });
+  }
 
   const existingJob = existingJobs.find(
     (item) =>
       item.input_asset_id === asset.$id &&
       !["completed", "cancelled"].includes(item.status)
   );
-  const job = existingJob
-    ? await updateDocument(request, collectionIds.processingJobs, existingJob.$id, {
-        status: "queued",
-        error_message: null,
-        input_asset_id: asset.$id,
-      })
-    : await createDocument(
-        request,
-        collectionIds.processingJobs,
-        buildUploadJobCreatePayload({
-          owner,
-          movieId,
-          assetType,
-          assetId: asset.$id,
-        })
-      );
+  const jobCreatePayload = buildUploadJobCreatePayload({
+    owner,
+    movieId,
+    assetType,
+    assetId: asset.$id,
+  });
+  const jobUpdatePayload = {
+    status: "queued",
+    error_message: null,
+    input_asset_id: asset.$id,
+  };
+  let job;
+  try {
+    job = existingJob
+      ? await updateDocument(request, collectionIds.processingJobs, existingJob.$id, jobUpdatePayload)
+      : await createDocument(request, collectionIds.processingJobs, jobCreatePayload);
+  } catch (caughtError) {
+    throw appendErrorContext(caughtError, {
+      phase: "beginUpload.job",
+      owner_type: owner.ownerType,
+      requested_owner_ids: {
+        movie_id: movieId || null,
+        series_id: seriesId || null,
+        season_id: seasonId || null,
+        episode_id: episodeId || null,
+      },
+      resolved_collection_ids: {
+        movie_assets: collectionIds.movieAssets,
+        episode_assets: collectionIds.episodeAssets,
+        processing_jobs: collectionIds.processingJobs,
+      },
+      target_collection_id: collectionIds.processingJobs,
+      payload_keys: Object.keys(existingJob ? jobUpdatePayload : jobCreatePayload),
+      existing_job_id: existingJob?.$id || null,
+      asset_id: asset.$id,
+      asset_type: assetType,
+      temp_key: tempKey,
+      object_key: objectKey,
+    });
+  }
 
   if (owner.ownerType === "movie") {
     if (["draft", "processing_failed", "ready", "unpublished"].includes(owner.movie.status)) {
