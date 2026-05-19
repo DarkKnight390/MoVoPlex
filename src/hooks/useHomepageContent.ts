@@ -2,9 +2,11 @@ import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { adminConsoleApi } from "@/lib/adminConsoleApi";
 import { useMovies } from "@/hooks/useMovies";
+import { useSeries } from "@/hooks/useSeries";
 
 export const useHomepageContent = () => {
   const { data: movies = [], ...moviesQuery } = useMovies();
+  const { data: series = [], ...seriesQuery } = useSeries();
   const [rowsQuery, rowItemsQuery] = useQueries({
     queries: [
       {
@@ -30,10 +32,25 @@ export const useHomepageContent = () => {
     ],
   });
 
-  const featuredMovie = useMemo(
-    () => movies.find((movie) => movie.featured_on_homepage) || movies[0] || null,
-    [movies]
-  );
+  const titles = useMemo(() => [...movies, ...series], [movies, series]);
+
+  const featuredMovie = useMemo(() => {
+    const featured = movies.find((movie) => movie.featured_on_homepage);
+
+    if (featured) {
+      return featured;
+    }
+
+    return [...titles].sort((left, right) => {
+      const featuredDelta =
+        Number(Boolean(right.featured_on_homepage)) - Number(Boolean(left.featured_on_homepage));
+      if (featuredDelta !== 0) {
+        return featuredDelta;
+      }
+
+      return (right.rating || 0) - (left.rating || 0);
+    })[0] || null;
+  }, [movies, titles]);
 
   const rowSections = useMemo(() => {
     const rows = rowsQuery.data || [];
@@ -53,9 +70,21 @@ export const useHomepageContent = () => {
   }, [movies, rowItemsQuery.data, rowsQuery.data]);
 
   return {
-    ...moviesQuery,
-    movies,
+    movies: titles,
+    movieTitles: movies,
+    seriesTitles: series,
     featuredMovie,
     rowSections,
+    isLoading:
+      moviesQuery.isLoading ||
+      seriesQuery.isLoading ||
+      rowsQuery.isLoading ||
+      rowItemsQuery.isLoading,
+    error:
+      moviesQuery.error ||
+      seriesQuery.error ||
+      rowsQuery.error ||
+      rowItemsQuery.error ||
+      null,
   };
 };

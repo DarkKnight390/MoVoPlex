@@ -37,6 +37,7 @@ const isFinalizedHlsPlaybackRef = (value?: string | null) =>
 
 const mapMovieDocument = (movie: AppwriteMovieDocument, signedUrls?: SignedUrlMap): Movie => ({
   id: movie.$id,
+  media_type: "movie",
   title: movie.title,
   poster: resolveMovieAssetUrl(movie.poster, signedUrls),
   backdrop: resolveMovieAssetUrl(movie.backdrop, signedUrls),

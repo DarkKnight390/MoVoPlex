@@ -7,12 +7,19 @@ import { useHomepageContent } from "@/hooks/useHomepageContent";
 
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
-  const { movies = [], rowSections, isLoading, error } = useHomepageContent();
+  const {
+    movies = [],
+    movieTitles = [],
+    seriesTitles = [],
+    rowSections,
+    isLoading,
+    error,
+  } = useHomepageContent();
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <div className="text-xl">Loading movies...</div>
+        <div className="text-xl">Loading catalog...</div>
       </div>
     );
   }
@@ -21,7 +28,7 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <div className="max-w-md px-6 text-center">
-          <div className="text-xl text-red-500">Error loading movies</div>
+          <div className="text-xl text-red-500">Error loading catalog</div>
           <p className="mt-3 text-sm text-gray-400">
             Published MoVoPlex titles could not be loaded right now. Please try again after the
             media pipeline finishes processing.
@@ -31,30 +38,34 @@ const Index = () => {
     );
   }
 
-  // Filter movies based on search query
-  const filteredMovies = movies.filter(movie =>
-    movie.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    movie.genre.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const query = searchQuery.toLowerCase();
+  const matchesSearch = (title: { title: string; genre: string }) =>
+    title.title.toLowerCase().includes(query) || title.genre.toLowerCase().includes(query);
+
+  const filteredMovies = movies.filter(matchesSearch);
+  const filteredMovieTitles = movieTitles.filter(matchesSearch);
+  const filteredSeriesTitles = seriesTitles.filter(matchesSearch);
 
   // Categorize movies by genre
-  const actionMovies = filteredMovies.filter(movie => 
+  const actionMovies = filteredMovieTitles.filter(movie => 
     movie.genre.toLowerCase().includes('action')
   );
   
-  const dramaMovies = filteredMovies.filter(movie => 
+  const dramaMovies = filteredMovieTitles.filter(movie => 
     movie.genre.toLowerCase().includes('drama')
   );
   
-  const scifiMovies = filteredMovies.filter(movie => 
+  const scifiMovies = filteredMovieTitles.filter(movie => 
     movie.genre.toLowerCase().includes('sci-fi')
   );
   
-  const comedyMovies = filteredMovies.filter(movie => 
+  const comedyMovies = filteredMovieTitles.filter(movie => 
     movie.genre.toLowerCase().includes('comedy')
   );
 
-  // Popular movies (highest rated)
+  const tvShows = filteredSeriesTitles;
+
+  // Popular titles (highest rated)
   const popularMovies = [...filteredMovies]
     .sort((a, b) => b.rating - a.rating)
     .slice(0, 12);
@@ -77,10 +88,10 @@ const Index = () => {
         <HeroSection />
         <div className="px-4 pb-16 pt-10 md:px-8">
           <div className="rounded-3xl border border-gray-800 bg-gray-950/70 p-8 text-center">
-            <h2 className="text-2xl font-semibold text-white">No published movies yet</h2>
+            <h2 className="text-2xl font-semibold text-white">No published titles yet</h2>
             <p className="mt-3 text-sm text-gray-400">
-              Movies will appear here once their uploads finish processing and an admin publishes
-              them from the MoVoPlex Admin Console.
+              Movies and TV shows will appear here once their uploads finish processing and an
+              admin publishes them from the MoVoPlex Admin Console.
             </p>
           </div>
         </div>
@@ -100,10 +111,16 @@ const Index = () => {
             {filteredHomepageRows.map((row) => (
               <MovieSection key={row.id} title={row.title} movies={row.movies} />
             ))}
+            {tvShows.length > 0 && (
+              <MovieSection title="Trending TV Shows" movies={tvShows} />
+            )}
           </>
         ) : (
           <>
             <MovieSection title="Popular on MoVoPlex" movies={popularMovies} />
+            {tvShows.length > 0 && (
+              <MovieSection title="Trending TV Shows" movies={tvShows} />
+            )}
             {actionMovies.length > 0 && (
               <MovieSection title="Action & Adventure" movies={actionMovies} />
             )}

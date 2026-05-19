@@ -5,6 +5,15 @@ import { useHomepageContent } from "@/hooks/useHomepageContent";
 
 const HeroSection = () => {
   const { featuredMovie } = useHomepageContent();
+  const detailPath =
+    featuredMovie?.media_type === "series"
+      ? `/series/${featuredMovie.id}`
+      : `/movie/${featuredMovie?.id}`;
+  const primaryPath =
+    featuredMovie?.media_type === "series"
+      ? `/series/${featuredMovie.id}`
+      : `/watch/${featuredMovie?.id}`;
+  const primaryLabel = featuredMovie?.media_type === "series" ? "Browse Episodes" : "Play Now";
 
   if (!featuredMovie) {
     return (
@@ -54,15 +63,15 @@ const HeroSection = () => {
         
         <div className="flex space-x-4">
           <Link 
-            to={`/watch/${featuredMovie.id}`}
+            to={primaryPath}
             className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg transition-all duration-200 hover:scale-105"
           >
             <Play className="w-5 h-5" />
-            <span className="font-semibold">Play Now</span>
+            <span className="font-semibold">{primaryLabel}</span>
           </Link>
           
           <Link 
-            to={`/movie/${featuredMovie.id}`}
+            to={detailPath}
             className="flex items-center space-x-2 bg-gray-700/80 hover:bg-gray-600/80 text-white px-8 py-3 rounded-lg transition-all duration-200 hover:scale-105"
           >
             <Info className="w-5 h-5" />

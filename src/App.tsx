@@ -8,7 +8,9 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import MovieDetail from "./pages/MovieDetail_NetflixStyle";
+import SeriesDetail from "./pages/SeriesDetail";
 import WatchMovie from "./pages/WatchMovie";
+import WatchEpisode from "./pages/WatchEpisode";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
@@ -47,12 +49,27 @@ const App = () => (
                 <MovieDetail />
               </ProtectedRoute>
             } />
+            <Route path="/series/:id" element={
+              <ProtectedRoute>
+                <SeriesDetail />
+              </ProtectedRoute>
+            } />
             <Route
               path="/watch/:id"
               element={
                 <ProtectedRoute>
                   <StreamingAccessRoute>
                     <WatchMovie />
+                  </StreamingAccessRoute>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/watch/episode/:id"
+              element={
+                <ProtectedRoute>
+                  <StreamingAccessRoute>
+                    <WatchEpisode />
                   </StreamingAccessRoute>
                 </ProtectedRoute>
               }

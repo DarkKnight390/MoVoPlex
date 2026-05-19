@@ -35,8 +35,8 @@ const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-8">
             <Link to="/" className="text-white hover:text-red-400 transition-colors">Home</Link>
-            <a href="#" className="text-gray-300 hover:text-red-400 transition-colors">Movies</a>
-            <a href="#" className="text-gray-300 hover:text-red-400 transition-colors">TV Shows</a>
+            <Link to="/" className="text-gray-300 hover:text-red-400 transition-colors">Movies</Link>
+            <Link to="/" className="text-gray-300 hover:text-red-400 transition-colors">TV Shows</Link>
             <a href="#" className="text-gray-300 hover:text-red-400 transition-colors">My List</a>
             {isAdmin && (
               <Link to="/admin/dashboard" className="text-red-400 hover:text-red-300 transition-colors">
@@ -54,7 +54,7 @@ const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
               </div>
               <input
                 type="text"
-                placeholder="Search movies..."
+                placeholder="Search titles..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="bg-gray-800 text-white pl-10 pr-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 w-64"
@@ -123,7 +123,7 @@ const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
                 </div>
                 <input
                   type="text"
-                  placeholder="Search movies..."
+                  placeholder="Search titles..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="bg-gray-800 text-white pl-10 pr-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 w-full"
@@ -139,8 +139,8 @@ const Header = ({ searchQuery, setSearchQuery }: HeaderProps) => {
                 >
                   Home
                 </Link>
-                <a href="#" className="text-gray-300 hover:text-red-400 transition-colors py-2">Movies</a>
-                <a href="#" className="text-gray-300 hover:text-red-400 transition-colors py-2">TV Shows</a>
+                <Link to="/" className="text-gray-300 hover:text-red-400 transition-colors py-2">Movies</Link>
+                <Link to="/" className="text-gray-300 hover:text-red-400 transition-colors py-2">TV Shows</Link>
                 <a href="#" className="text-gray-300 hover:text-red-400 transition-colors py-2">My List</a>
                 {isAdmin && (
                   <Link

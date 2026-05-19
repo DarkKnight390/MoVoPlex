@@ -3,6 +3,7 @@ import { type MovieStatus, type RejectionReasonCode } from "./admin";
 
 export interface Movie {
   id: string;
+  media_type?: "movie" | "series";
   title: string;
   poster: string;
   backdrop: string;
@@ -33,4 +34,5 @@ export interface Movie {
   category_ids?: string[];
   rejection_reason_code?: RejectionReasonCode | null;
   rejection_reason_note?: string | null;
+  season_count?: number;
 }
