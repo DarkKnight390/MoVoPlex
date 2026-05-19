@@ -1,5 +1,5 @@
 import { ChevronDown, Play, Plus, Star, ThumbsUp } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { type ReactNode, useState } from "react";
 import { Movie } from "@/types/movie";
 
@@ -62,6 +62,7 @@ const ActionButton = ({
 
 const MovieCard = ({ movie, variant = "default", className }: MovieCardProps) => {
   const [isHovered, setIsHovered] = useState(false);
+  const location = useLocation();
   const cardImage = getCardImage(movie);
   const useLandscapeImage = hasLandscapePreview(movie);
   const hoverPreviewVideo = getHoverPreviewVideo(movie);
@@ -69,7 +70,7 @@ const MovieCard = ({ movie, variant = "default", className }: MovieCardProps) =>
 
   if (variant === "compact") {
     return (
-      <Link to={getDetailPath(movie)}>
+      <Link to={getDetailPath(movie)} state={{ backgroundLocation: location }}>
         <div
           className={`group relative overflow-hidden rounded-lg border border-gray-800 bg-gray-950 transition-all duration-300 hover:shadow-lg ${className}`}
         >
@@ -118,6 +119,7 @@ const MovieCard = ({ movie, variant = "default", className }: MovieCardProps) =>
     >
       <Link
         to={getDetailPath(movie)}
+        state={{ backgroundLocation: location }}
         className="block overflow-hidden rounded-2xl border border-white/10 bg-[#121212] transition-all duration-300 group-hover:opacity-0"
       >
         <div className="relative aspect-video overflow-hidden rounded-2xl">
@@ -227,6 +229,7 @@ const MovieCard = ({ movie, variant = "default", className }: MovieCardProps) =>
 
             <Link
               to={getDetailPath(movie)}
+              state={{ backgroundLocation: location }}
               aria-label={`More info for ${movie.title}`}
               className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/25 bg-[#2a2a2a] text-white transition hover:border-white hover:bg-[#3a3a3a]"
             >

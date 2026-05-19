@@ -1,10 +1,11 @@
 
 import { Play, Info, Star } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useHomepageContent } from "@/hooks/useHomepageContent";
 
 const HeroSection = () => {
   const { featuredMovie } = useHomepageContent();
+  const location = useLocation();
   const detailPath =
     featuredMovie?.media_type === "series"
       ? `/series/${featuredMovie.id}`
@@ -72,6 +73,7 @@ const HeroSection = () => {
           
           <Link 
             to={detailPath}
+            state={{ backgroundLocation: location }}
             className="flex items-center space-x-2 bg-gray-700/80 hover:bg-gray-600/80 text-white px-8 py-3 rounded-lg transition-all duration-200 hover:scale-105"
           >
             <Info className="w-5 h-5" />

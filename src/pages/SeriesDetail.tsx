@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ChevronDown,
   Play,
@@ -20,6 +20,9 @@ const parseGenres = (value?: string) =>
 const SeriesDetail = () => {
   const { id } = useParams();
   const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const backgroundLocation = location.state?.backgroundLocation;
   const { data: series, isLoading, error } = useSeriesDetail(id);
   const { data: allSeries = [] } = useSeries();
 
@@ -80,6 +83,7 @@ const SeriesDetail = () => {
 
   const heroImage = series.banner || series.backdrop || series.poster;
   const genres = parseGenres(series.genre);
+  const closeTarget = backgroundLocation?.pathname || "/shows";
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-black text-white">
@@ -104,7 +108,14 @@ const SeriesDetail = () => {
             <div className="absolute inset-0 bg-gradient-to-r from-[#141414]/75 via-transparent to-transparent" />
 
             <Link
-              to="/shows"
+              to={closeTarget}
+              state={backgroundLocation ? undefined : null}
+              onClick={(event) => {
+                if (backgroundLocation) {
+                  event.preventDefault();
+                  navigate(-1);
+                }
+              }}
               aria-label="Close series details"
               className="absolute right-4 top-4 z-30 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#181818]/95 text-white transition hover:bg-[#333]"
             >
@@ -307,6 +318,7 @@ const SeriesDetail = () => {
                     <Link
                       key={relatedSeriesEntry.id}
                       to={`/series/${relatedSeriesEntry.id}`}
+                      state={{ backgroundLocation: backgroundLocation || location }}
                       className="group overflow-hidden rounded bg-[#2f2f2f] transition hover:scale-[1.02]"
                     >
                       <img

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Play,
   Plus,
@@ -38,6 +38,9 @@ const getYouTubePreviewUrl = (embedUrl?: string | null, muted = true) => {
 const MovieDetail = () => {
   const { id } = useParams();
   const [heroPreviewMuted, setHeroPreviewMuted] = useState(true);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const backgroundLocation = location.state?.backgroundLocation;
 
   const { data: movie, isLoading, error } = useMovie(id);
   const { data: allMovies = [] } = useMovies();
@@ -51,6 +54,7 @@ const MovieDetail = () => {
 
   const heroImage = movie?.banner || movie?.backdrop || movie?.poster;
   const genres = parseList(movie?.genre);
+  const closeTarget = backgroundLocation?.pathname || "/";
 
   const relatedMovies = useMemo(() => {
     if (!movie || !allMovies.length) return [];
@@ -139,7 +143,14 @@ const MovieDetail = () => {
             <div className="absolute inset-0 bg-gradient-to-r from-[#141414]/75 via-transparent to-transparent" />
 
             <Link
-              to="/"
+              to={closeTarget}
+              state={backgroundLocation ? undefined : null}
+              onClick={(event) => {
+                if (backgroundLocation) {
+                  event.preventDefault();
+                  navigate(-1);
+                }
+              }}
               aria-label="Close movie details"
               className="absolute right-4 top-4 z-30 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#181818]/95 text-white transition hover:bg-[#333]"
             >
@@ -266,6 +277,7 @@ const MovieDetail = () => {
                     <Link
                       key={relatedMovie.id}
                       to={`/movie/${relatedMovie.id}`}
+                      state={{ backgroundLocation: backgroundLocation || location }}
                       className="group overflow-hidden rounded bg-[#2f2f2f] transition hover:scale-[1.02]"
                     >
                       <img
