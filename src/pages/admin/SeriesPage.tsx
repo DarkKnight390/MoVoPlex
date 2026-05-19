@@ -18,7 +18,11 @@ import {
   uploadBrowserFileToStorage,
   uploadLargeBrowserFileToStorage,
 } from "@/lib/adminConsoleApi";
-import { buildTempStoredAssetRef, resolveStoredAssetUrl } from "@/lib/media";
+import {
+  buildTempStoredAssetRef,
+  isTempStoredAsset,
+  resolveStoredAssetUrl,
+} from "@/lib/media";
 import type {
   AppwriteEpisodeDocument,
   AppwriteSeasonDocument,
@@ -32,6 +36,7 @@ type UploadPhase = "idle" | "preparing" | "uploading" | "confirming" | "queued" 
 type UploadState = { phase: UploadPhase; progress: number; message: string };
 
 const emptyUploadState = (): UploadState => ({ phase: "idle", progress: 0, message: "" });
+const hlsManifestPattern = /\.m3u8(?:\?|$)/i;
 
 type SeriesFormState = {
   title: string;
@@ -265,6 +270,8 @@ const SeriesPage = () => {
   const [episodeThumbUpload, setEpisodeThumbUpload] = useState<UploadState>(emptyUploadState);
   const [episodeTrailerUpload, setEpisodeTrailerUpload] = useState<UploadState>(emptyUploadState);
   const [episodeVideoUpload, setEpisodeVideoUpload] = useState<UploadState>(emptyUploadState);
+  const [seriesPosterInputKey, setSeriesPosterInputKey] = useState(0);
+  const [seriesBannerInputKey, setSeriesBannerInputKey] = useState(0);
   const [seasonPosterInputKey, setSeasonPosterInputKey] = useState(0);
   const [episodeThumbInputKey, setEpisodeThumbInputKey] = useState(0);
   const [episodeTrailerInputKey, setEpisodeTrailerInputKey] = useState(0);
@@ -305,6 +312,51 @@ const SeriesPage = () => {
     [seasonEpisodes, selectedEpisodeId]
   );
 
+  const selectedSeriesEpisodes = useMemo(
+    () =>
+      episodes
+        .filter((entry) => entry.series_id === selectedSeriesId)
+        .sort((left, right) => {
+          if (left.season_id === right.season_id) {
+            return left.episode_number - right.episode_number;
+          }
+          return left.season_id.localeCompare(right.season_id);
+        }),
+    [episodes, selectedSeriesId]
+  );
+
+  const selectedSeriesVisibility = useMemo(() => {
+    if (!selectedSeries) {
+      return null;
+    }
+
+    const publishedSeasons = seriesSeasons.filter((season) => season.status === "published");
+    const publishedEpisodes = selectedSeriesEpisodes.filter(
+      (episode) => episode.status === "published"
+    );
+    const streamReadyEpisodes = publishedEpisodes.filter(
+      (episode) => Boolean(episode.video_url) && hlsManifestPattern.test(episode.video_url || "")
+    );
+    const tempThumbnailEpisodes = selectedSeriesEpisodes.filter(
+      (episode) => Boolean(episode.thumbnail) && isTempStoredAsset(episode.thumbnail)
+    );
+
+    return {
+      listable:
+        selectedSeries.status === "published" &&
+        Boolean(selectedSeries.poster) &&
+        !isTempStoredAsset(selectedSeries.poster),
+      playable: streamReadyEpisodes.length > 0,
+      publishedSeasons: publishedSeasons.length,
+      publishedEpisodes: publishedEpisodes.length,
+      streamReadyEpisodes: streamReadyEpisodes.length,
+      tempThumbnailEpisodes: tempThumbnailEpisodes.length,
+      posterReady: Boolean(selectedSeries.poster) && !isTempStoredAsset(selectedSeries.poster),
+      bannerReady:
+        !selectedSeries.banner || !isTempStoredAsset(selectedSeries.banner || undefined),
+    };
+  }, [selectedSeries, seriesSeasons, selectedSeriesEpisodes]);
+
   const validateFileSize = (file: File | null) => {
     if (file && file.size > MAX_BROWSER_UPLOAD_BYTES) {
       toast.error("File is larger than the 3 GB browser upload limit.");
@@ -312,6 +364,43 @@ const SeriesPage = () => {
     }
     return true;
   };
+
+  useEffect(() => {
+    if (!selectedSeries) {
+      setSeriesForm(emptySeriesForm);
+      setSeriesPosterFile(null);
+      setSeriesBannerFile(null);
+      setSeriesPosterUpload(emptyUploadState());
+      setSeriesBannerUpload(emptyUploadState());
+      setSeriesPosterInputKey((current) => current + 1);
+      setSeriesBannerInputKey((current) => current + 1);
+      return;
+    }
+
+    setSeriesForm({
+      title: selectedSeries.title || "",
+      description: selectedSeries.description || "",
+      genres: (selectedSeries.genres || []).join(", "),
+      language: selectedSeries.language || "",
+      country: selectedSeries.country || "",
+      age_rating: selectedSeries.age_rating || "",
+      creator_user_id: selectedSeries.creator_user_id || "",
+      release_schedule: selectedSeries.release_schedule || "manual",
+      rating:
+        typeof selectedSeries.rating === "number" && Number.isFinite(selectedSeries.rating)
+          ? String(selectedSeries.rating)
+          : "",
+      status: selectedSeries.status as SeriesFormState["status"],
+      poster: selectedSeries.poster || "",
+      banner: selectedSeries.banner || "",
+    });
+    setSeriesPosterFile(null);
+    setSeriesBannerFile(null);
+    setSeriesPosterUpload(emptyUploadState());
+    setSeriesBannerUpload(emptyUploadState());
+    setSeriesPosterInputKey((current) => current + 1);
+    setSeriesBannerInputKey((current) => current + 1);
+  }, [selectedSeries]);
 
   useEffect(() => {
     if (!selectedSeason) {
@@ -386,22 +475,37 @@ const SeriesPage = () => {
     setEpisodeVideoInputKey((current) => current + 1);
   }, [selectedEpisode]);
 
-  const handleCreateSeries = async (event: React.FormEvent) => {
+  const resetSeriesEditingState = () => {
+    setSelectedSeriesId("");
+    setSelectedSeasonId("");
+    setSelectedEpisodeId("");
+    setSeriesForm(emptySeriesForm);
+    setSeriesPosterFile(null);
+    setSeriesBannerFile(null);
+    setSeriesPosterUpload(emptyUploadState());
+    setSeriesBannerUpload(emptyUploadState());
+    setSeriesPosterInputKey((current) => current + 1);
+    setSeriesBannerInputKey((current) => current + 1);
+  };
+
+  const handleSaveSeries = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!seriesPosterFile && !seriesForm.poster) {
+    if (!selectedSeries && !seriesPosterFile && !seriesForm.poster) {
       toast.error("Series poster is required.");
       return;
     }
 
     try {
-      const savedSeries = await mutations.createSeries.mutateAsync({
+      const payload = {
         title: seriesForm.title.trim(),
         description: seriesForm.description.trim(),
         poster:
           seriesForm.poster ||
+          selectedSeries?.poster ||
           buildTempStoredAssetRef(`series/${slugifySegment(seriesForm.title)}/poster/${sanitizeFileName(seriesPosterFile!.name)}`),
         banner:
           seriesForm.banner ||
+          selectedSeries?.banner ||
           (seriesBannerFile
             ? buildTempStoredAssetRef(`series/${slugifySegment(seriesForm.title)}/banner/${sanitizeFileName(seriesBannerFile.name)}`)
             : null),
@@ -413,7 +517,14 @@ const SeriesPage = () => {
         release_schedule: seriesForm.release_schedule || null,
         rating: seriesForm.rating ? Number(seriesForm.rating) : null,
         status: seriesForm.status,
-      });
+      };
+
+      const savedSeries = selectedSeries
+        ? await mutations.updateSeries.mutateAsync({
+            seriesId: selectedSeries.$id,
+            payload,
+          })
+        : await mutations.createSeries.mutateAsync(payload);
 
       if (!savedSeries || !savedSeries.$id) {
         throw new Error(
@@ -451,12 +562,34 @@ const SeriesPage = () => {
         });
       }
 
-      toast.success("Series created.");
-      setSeriesForm(emptySeriesForm);
+      toast.success(selectedSeries ? "Series updated." : "Series created.");
       setSeriesPosterFile(null);
       setSeriesBannerFile(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Series save failed.");
+    }
+  };
+
+  const handleDeleteSeries = async () => {
+    if (!selectedSeries) {
+      toast.error("Select a series first.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete series "${selectedSeries.title}"? This cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await mutations.deleteSeries.mutateAsync(selectedSeries.$id);
+      toast.success("Series deleted.");
+      resetSeriesEditingState();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Series delete failed.");
     }
   };
 
@@ -701,10 +834,62 @@ const SeriesPage = () => {
     <div className="grid gap-6 xl:grid-cols-[0.95fr_0.95fr_1.1fr]">
       <Card className="border-gray-800 bg-gray-950 text-white">
         <CardHeader>
-          <CardTitle>Create Series</CardTitle>
+          <CardTitle>{selectedSeries ? `Editing ${selectedSeries.title}` : "Create Series"}</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="space-y-4" onSubmit={handleCreateSeries}>
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-gray-800 bg-black/30 p-3 text-sm">
+            <div>
+              <p className="font-medium text-white">
+                {selectedSeries ? "Selected series" : "Create a new series"}
+              </p>
+              <p className="mt-1 text-gray-400">
+                {selectedSeries
+                  ? "Update the core metadata, artwork, and publication state here."
+                  : "Create the series record before adding seasons and episodes."}
+              </p>
+            </div>
+            {selectedSeries ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-gray-700 bg-transparent text-white hover:bg-gray-900"
+                onClick={resetSeriesEditingState}
+              >
+                Add New Series
+              </Button>
+            ) : null}
+          </div>
+
+          {selectedSeriesVisibility ? (
+            <div className="mb-4 rounded-xl border border-gray-800 bg-black/30 p-4 text-sm">
+              <p className="font-medium text-white">Public visibility check</p>
+              <div className="mt-3 grid gap-2 text-gray-300">
+                <div className="flex items-center justify-between gap-3">
+                  <span>Shows page visibility</span>
+                  <Badge variant="outline" className={selectedSeriesVisibility.listable ? "border-emerald-700 text-emerald-300" : "border-red-700 text-red-300"}>
+                    {selectedSeriesVisibility.listable ? "ready" : "blocked"}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span>At least one stream-ready episode</span>
+                  <Badge variant="outline" className={selectedSeriesVisibility.playable ? "border-emerald-700 text-emerald-300" : "border-red-700 text-red-300"}>
+                    {selectedSeriesVisibility.streamReadyEpisodes}
+                  </Badge>
+                </div>
+                <div className="grid gap-1 text-xs text-gray-400">
+                  <p>Series status: {selectedSeries.status}</p>
+                  <p>Poster finalized: {selectedSeriesVisibility.posterReady ? "yes" : "no"}</p>
+                  <p>Banner finalized: {selectedSeriesVisibility.bannerReady ? "yes" : "no / optional"}</p>
+                  <p>Published seasons: {selectedSeriesVisibility.publishedSeasons}</p>
+                  <p>Published episodes: {selectedSeriesVisibility.publishedEpisodes}</p>
+                  <p>Published episodes with HLS `.m3u8`: {selectedSeriesVisibility.streamReadyEpisodes}</p>
+                  <p>Episodes still using temp thumbnails: {selectedSeriesVisibility.tempThumbnailEpisodes}</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <form className="space-y-4" onSubmit={handleSaveSeries}>
             <Input value={seriesForm.title} onChange={(e) => setSeriesForm((c) => ({ ...c, title: e.target.value }))} placeholder="Series title" className="border-gray-700 bg-gray-900 text-white" />
             <Textarea value={seriesForm.description} onChange={(e) => setSeriesForm((c) => ({ ...c, description: e.target.value }))} placeholder="Series description" className="min-h-[110px] border-gray-700 bg-gray-900 text-white" />
             <Input value={seriesForm.genres} onChange={(e) => setSeriesForm((c) => ({ ...c, genres: e.target.value }))} placeholder="Genres (comma separated)" className="border-gray-700 bg-gray-900 text-white" />
@@ -739,15 +924,35 @@ const SeriesPage = () => {
 
             <div className="space-y-2">
               <Label>Series poster</Label>
-              <Input type="file" accept="image/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setSeriesPosterFile(file); }} />
+              <Input key={seriesPosterInputKey} type="file" accept="image/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setSeriesPosterFile(file); }} />
+              {!seriesPosterFile && seriesForm.poster ? (
+                <p className="text-xs text-gray-500">Current asset: {seriesForm.poster}</p>
+              ) : null}
               {seriesPosterUpload.phase !== "idle" ? <p className="text-xs text-gray-400">{seriesPosterUpload.message} {seriesPosterUpload.progress}%</p> : null}
             </div>
             <div className="space-y-2">
               <Label>Series banner</Label>
-              <Input type="file" accept="image/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setSeriesBannerFile(file); }} />
+              <Input key={seriesBannerInputKey} type="file" accept="image/*" className="border-gray-700 bg-gray-900 text-white" onChange={(e) => { const file = e.target.files?.[0] ?? null; if (validateFileSize(file)) setSeriesBannerFile(file); }} />
+              {!seriesBannerFile && seriesForm.banner ? (
+                <p className="text-xs text-gray-500">Current asset: {seriesForm.banner}</p>
+              ) : null}
               {seriesBannerUpload.phase !== "idle" ? <p className="text-xs text-gray-400">{seriesBannerUpload.message} {seriesBannerUpload.progress}%</p> : null}
             </div>
-            <Button type="submit" className="bg-red-600 text-white hover:bg-red-700">Create Series</Button>
+            <div className="flex flex-wrap gap-3">
+              <Button type="submit" className="bg-red-600 text-white hover:bg-red-700">
+                {selectedSeries ? "Update Series" : "Create Series"}
+              </Button>
+              {selectedSeries ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="bg-red-950 text-red-100 hover:bg-red-900"
+                  onClick={handleDeleteSeries}
+                >
+                  Delete Series
+                </Button>
+              ) : null}
+            </div>
           </form>
         </CardContent>
       </Card>
