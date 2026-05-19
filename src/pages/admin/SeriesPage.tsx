@@ -110,6 +110,29 @@ const slugifySegment = (value: string) =>
 
 const sanitizeFileName = (value: string) => value.replace(/[^\w.-]+/g, "-");
 
+const hasDocumentId = <T extends { $id?: unknown }>(value: T | null | undefined): value is T & { $id: string } =>
+  !!value && typeof value.$id === "string" && value.$id.length > 0;
+
+const hasStatus = <T extends { status?: unknown }>(value: T | null | undefined): value is T & { status: string } =>
+  !!value && typeof value.status === "string" && value.status.length > 0;
+
+const isSeriesDocument = (
+  value: AppwriteSeriesDocument | null | undefined
+): value is AppwriteSeriesDocument => hasDocumentId(value) && hasStatus(value);
+
+const isSeasonDocument = (
+  value: AppwriteSeasonDocument | null | undefined
+): value is AppwriteSeasonDocument =>
+  hasDocumentId(value) && hasStatus(value) && typeof value.series_id === "string";
+
+const isEpisodeDocument = (
+  value: AppwriteEpisodeDocument | null | undefined
+): value is AppwriteEpisodeDocument =>
+  hasDocumentId(value) &&
+  hasStatus(value) &&
+  typeof value.series_id === "string" &&
+  typeof value.season_id === "string";
+
 const formatFileSize = (size: number) => {
   if (size >= 1024 * 1024 * 1024) {
     return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
@@ -216,9 +239,9 @@ const queueUpload = async ({
 };
 
 const SeriesPage = () => {
-  const { data: series = [] } = useAdminSeries();
-  const { data: seasons = [] } = useAdminSeasons();
-  const { data: episodes = [] } = useAdminEpisodes();
+  const { data: rawSeries = [] } = useAdminSeries();
+  const { data: rawSeasons = [] } = useAdminSeasons();
+  const { data: rawEpisodes = [] } = useAdminEpisodes();
   const { data: creators = [] } = useCreatorProfiles();
   const mutations = useAdminMutation();
 
@@ -246,6 +269,10 @@ const SeriesPage = () => {
   const [episodeThumbInputKey, setEpisodeThumbInputKey] = useState(0);
   const [episodeTrailerInputKey, setEpisodeTrailerInputKey] = useState(0);
   const [episodeVideoInputKey, setEpisodeVideoInputKey] = useState(0);
+
+  const series = useMemo(() => rawSeries.filter(isSeriesDocument), [rawSeries]);
+  const seasons = useMemo(() => rawSeasons.filter(isSeasonDocument), [rawSeasons]);
+  const episodes = useMemo(() => rawEpisodes.filter(isEpisodeDocument), [rawEpisodes]);
 
   const selectedSeries = useMemo(
     () => series.find((entry) => entry.$id === selectedSeriesId) || null,
