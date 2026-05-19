@@ -272,7 +272,7 @@ const collectionDefinitions = [
     name: "Processing Jobs",
     permissions: collectionPermissions.adminReadWrite,
     attributes: [
-      { type: "string", key: "movie_id", size: 100, required: true },
+      { type: "string", key: "movie_id", size: 100, required: false },
       { type: "string", key: "series_id", size: 100, required: false },
       { type: "string", key: "season_id", size: 100, required: false },
       { type: "string", key: "episode_id", size: 100, required: false },
